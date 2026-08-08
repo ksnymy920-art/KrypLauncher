@@ -1,0 +1,65 @@
+{
+  "name": "omnilauncher",
+  "version": "1.0.1",
+  "description": "Minecraft launcher with multi Java versions, Fabric/Forge support, offline & Microsoft accounts",
+  "author": "OmniLauncher",
+  "main": "electron-main.js",
+  "bin": "server.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "pkg server.js --targets node18-win-x64 --output OmniLauncher-cli.exe",
+    "build:app": "electron-builder --win portable",
+    "icon": "node make-icon.js"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "scripts": [
+      "server.js",
+      "lib/**/*.js"
+    ]
+  },
+  "build": {
+    "appId": "com.omnilauncher.app",
+    "productName": "OmniLauncher",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ksnymy920-art",
+        "repo": "OmniLauncher"
+      }
+    ],
+    "files": [
+      "server.js",
+      "electron-main.js",
+      "lib/**/*",
+      "public/**/*",
+      "icon.png",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "icon.ico",
+      "signAndEditExecutable": false
+    },
+    "portable": {
+      "artifactName": "OmniLauncher.exe"
+    }
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "express": "^4.21.2",
+    "tar": "^7.4.3"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "pkg": "^5.8.1"
+  }
+}

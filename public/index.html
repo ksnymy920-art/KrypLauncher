@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OmniLauncher</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg"><div class="stars"></div><div class="glow glow1"></div><div class="glow glow2"></div></div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">⛏️</div>
+        <div class="brand-text">
+          <span class="brand-title">Omni<span>Launcher</span></span>
+          <span class="brand-sub" data-i18n="home.brand">Ready to play</span>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn active" data-tab="home"><i class="fa-solid fa-house"></i><span data-i18n="nav.home">Home</span></button>
+        <button class="nav-btn" data-tab="versions"><i class="fa-solid fa-boxes-stacked"></i><span data-i18n="nav.versions">Versions</span></button>
+        <button class="nav-btn" data-tab="mods"><i class="fa-solid fa-puzzle-piece"></i><span data-i18n="nav.mods">Mods</span></button>
+        <button class="nav-btn" data-tab="skins"><i class="fa-solid fa-shirt"></i><span data-i18n="nav.skins">Skins</span></button>
+        <button class="nav-btn" data-tab="accounts"><i class="fa-solid fa-user-astronaut"></i><span data-i18n="nav.accounts">Accounts</span></button>
+        <button class="nav-btn" data-tab="settings"><i class="fa-solid fa-gear"></i><span data-i18n="nav.settings">Settings</span></button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="server-status">
+          <span class="dot" id="serverDot"></span>
+          <span id="serverStatus" data-i18n="common.connected">Connected</span>
+        </div>
+        <div class="pix">⛏️ OmniLauncher</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <section class="tab active" id="tab-home">
+        <div class="hero">
+          <div class="hero-inner">
+            <h1 data-i18n="home.title">Ready to play?</h1>
+            <p id="heroSub">Choose your version and press Play now</p>
+            <div class="hero-actions">
+              <button id="playBtn" class="big-btn">
+                <i class="fa-solid fa-play"></i>
+                <span id="playBtnText" data-i18n="home.play">Play Now</span>
+              </button>
+              <button id="stopBtn" class="stop-btn" hidden><i class="fa-solid fa-stop"></i> <span data-i18n="home.stop">Stop</span></button>
+            </div>
+            <div class="play-progress" id="playProgress" hidden>
+              <div class="progress-label" id="playProgressLabel">...</div>
+              <div class="progress-track"><div class="progress-fill" id="playProgressFill"></div></div>
+            </div>
+            <div class="instance-badge" id="instanceBadge" hidden></div>
+          </div>
+        </div>
+
+        <div class="selectors grid-3">
+          <div class="field">
+            <label><i class="fa-solid fa-cubes"></i> <span data-i18n="home.instance">Installed Version</span></label>
+            <div class="select-wrap"><select id="instanceSelect"></select></div>
+            <div class="muted small" id="instanceDetail" style="margin-top:4px"></div>
+          </div>
+          <div class="field">
+            <label><i class="fa-solid fa-user-astronaut"></i> <span data-i18n="home.account">Account</span></label>
+            <div class="select-wrap"><select id="accountSelect"></select></div>
+          </div>
+          <div class="field" style="justify-content:flex-end; gap:8px">
+            <button class="ghost-btn" id="goToVersionsBtn"><i class="fa-solid fa-boxes-stacked"></i> <span data-i18n="home.installNew">Install New Version</span></button>
+            <button class="ghost-btn" id="manageInstancesBtn"><i class="fa-solid fa-screwdriver-wrench"></i> <span data-i18n="home.manage">Manage Versions</span></button>
+          </div>
+        </div>
+
+        <div class="console-wrap">
+          <div class="console-head">
+            <span><i class="fa-solid fa-terminal"></i> <span data-i18n="home.console">Console</span></span>
+            <button id="clearConsole" class="ghost-btn"><i class="fa-solid fa-eraser"></i> <span data-i18n="home.clear">Clear</span></button>
+          </div>
+          <div id="missingBanner" class="missing-banner" hidden></div>
+          <div id="console"></div>
+        </div>
+      </section>
+
+      <section class="tab" id="tab-versions">
+        <div class="tab-head">
+          <h2><i class="fa-solid fa-boxes-stacked"></i> <span data-i18n="nav.versions">Versions</span></h2>
+          <button id="refreshVersions" class="ghost-btn"><i class="fa-solid fa-rotate"></i> <span data-i18n="common.refresh">Refresh</span></button>
+        </div>
+        <div class="version-list" id="versionList"></div>
+      </section>
+
+      <section class="tab" id="tab-mods">
+        <div class="tab-head">
+          <h2><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="nav.mods">Mods</span></h2>
+          <div class="row">
+            <button id="modsOpenBtn" class="ghost-btn"><i class="fa-solid fa-folder-open"></i> <span id="modsOpenLabel">Open mods folder</span></button>
+            <button id="modsRefreshBtn" class="ghost-btn"><i class="fa-solid fa-rotate"></i> <span data-i18n="common.refresh">Refresh</span></button>
+          </div>
+        </div>
+        <p class="muted" data-i18n="mods.desc">Search mods from Modrinth or CurseForge and install them directly into the mods folder of the selected version and loader. The launcher automatically installs required dependencies so the mod works, and marks installed mods with "Installed".</p>
+
+        <div class="seg mods-type-seg" id="modTypeSeg">
+          <button class="active" data-type="mod"><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="mods.typeMod">Mods</span></button>
+          <button data-type="shader"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="mods.typeShader">Shaders</span></button>
+          <button data-type="resourcepack"><i class="fa-solid fa-palette"></i> <span data-i18n="mods.typeRes">Resource Packs</span></button>
+          <button data-type="world"><i class="fa-solid fa-earth-americas"></i> <span data-i18n="mods.typeWorld">Maps</span></button>
+        </div>
+
+        <div class="mods-toolbar">
+          <div class="mods-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="modSearch" data-i18n-ph="mods.searchPh" placeholder="Search mods... (e.g. JEI)">
+          </div>
+          <div class="field">
+            <label><i class="fa-solid fa-cubes"></i> <span data-i18n="mods.version">Version</span></label>
+            <div class="select-wrap"><select id="modVersionSelect"></select></div>
+          </div>
+          <div class="field" id="modLoaderField">
+            <label><i class="fa-solid fa-toolbox"></i> <span data-i18n="mods.loader">Loader</span></label>
+            <div class="select-wrap">
+              <select id="modLoaderSelect">
+                <option value="" data-i18n="mods.auto">Auto</option>
+                <option value="fabric" data-i18n="loader.fabric">Fabric</option>
+                <option value="forge" data-i18n="loader.forge">Forge</option>
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label><i class="fa-solid fa-database"></i> <span data-i18n="mods.source">Source</span></label>
+            <div class="select-wrap">
+              <select id="modSourceSelect">
+                <option value="all" data-i18n="mods.allSources">All (Modrinth + CurseForge)</option>
+                <option value="modrinth">Modrinth</option>
+                <option value="curseforge">CurseForge</option>
+              </select>
+            </div>
+          </div>
+          <button id="modSearchBtn" class="btn"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="common.search">Search</span></button>
+          <button id="modUseMainBtn" class="ghost-btn" data-i18n-title="mods.fromMain" title="Use version from Home"><i class="fa-solid fa-arrow-right-arrow-left"></i> <span data-i18n="mods.fromMain">Use version from Home</span></button>
+        </div>
+
+        <div class="mods-installed-head">
+          <h3><i class="fa-solid fa-boxes-stacked"></i> <span id="modsInstalledHead">Installed Mods</span></h3>
+          <span class="mods-installed-path" id="modsInstalledPath"></span>
+        </div>
+        <div class="mods-installed" id="modsInstalled"></div>
+
+        <div class="mods-list-head">
+          <h3><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="mods.resultsHead">Search Results</span></h3>
+          <div class="mods-pager">
+            <span class="muted small" id="modsCount"></span>
+            <button id="modsPrevPage" class="ghost-btn" disabled><i class="fa-solid fa-chevron-right"></i></button>
+            <span class="muted small" id="modsPageInfo">Page 1</span>
+            <button id="modsNextPage" class="ghost-btn" disabled><i class="fa-solid fa-chevron-left"></i></button>
+          </div>
+        </div>
+        <div class="mods-list" id="modsList"></div>
+      </section>
+
+      <section class="tab" id="tab-skins">
+        <div class="tab-head">
+          <h2><i class="fa-solid fa-shirt"></i> <span data-i18n="nav.skins">Skins</span></h2>
+          <div class="row">
+            <button id="skinsUseMainBtn" class="ghost-btn" data-i18n-title="skins.fromMain" title="Use account from Home"><i class="fa-solid fa-arrow-right-arrow-left"></i> <span data-i18n="skins.fromMain">Use account from Home</span></button>
+          </div>
+        </div>
+        <p class="muted" data-i18n="skins.desc">Thousands of skins from The Skindex — pick a skin and press "Choose" to wear it in-game automatically. A Microsoft account uploads the skin to your official profile, and offline accounts install it locally (CustomSkinLoader) and can upload it to Ely.by with one button so others see it on any server.</p>
+
+        <div class="skins-current" id="skinsCurrentBox" hidden>
+          <div class="skins-current-card">
+            <div class="skin-avatar" id="skinsCurrentPreview"><i class="fa-solid fa-shirt"></i></div>
+            <div class="skin-avatar-info">
+              <div class="v-name" data-i18n="skins.current">Current Skin</div>
+              <div class="v-sub" id="skinsCurrentInfo">-</div>
+            </div>
+            <button id="skinsElyBtn" class="btn btn-ely"><i class="fa-solid fa-cloud-arrow-up"></i> <span data-i18n="skins.uploadEly">Upload to Ely.by automatically</span></button>
+            <button id="skinsRemoveBtn" class="btn btn-danger-ghost"><i class="fa-solid fa-eraser"></i> <span data-i18n="skins.remove">Remove</span></button>
+          </div>
+        </div>
+
+        <div class="skins-toolbar">
+          <div class="mods-search">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="skinSearch" data-i18n-ph="skins.searchPh" placeholder="Search skins... (e.g. herobrine)" minlength="3">
+          </div>
+          <div class="field">
+            <label><i class="fa-solid fa-user-astronaut"></i> <span data-i18n="home.account">Account</span></label>
+            <div class="select-wrap"><select id="skinAccountSelect"></select></div>
+          </div>
+          <button id="skinSearchBtn" class="btn"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="common.search">Search</span></button>
+          <button id="skinLatestBtn" class="ghost-btn"><i class="fa-solid fa-bolt"></i> <span data-i18n="skins.latest">Latest</span></button>
+          <button id="skinFavBtn" class="ghost-btn"><i class="fa-solid fa-star"></i> <span data-i18n="skins.favorites">Favorites</span></button>
+          <div class="skins-pager">
+            <button id="skinPrevPage" class="ghost-btn" disabled><i class="fa-solid fa-chevron-right"></i></button>
+            <span id="skinPageInfo" class="muted">Page 1</span>
+            <button id="skinNextPage" class="ghost-btn" disabled><i class="fa-solid fa-chevron-left"></i></button>
+          </div>
+        </div>
+
+        <div class="skins-list" id="skinsList">
+          <div class="vrow muted" data-i18n="skins.loading">Loading skins...</div>
+        </div>
+      </section>
+
+      <section class="tab" id="tab-accounts">
+        <div class="tab-head">
+          <h2><i class="fa-solid fa-user-astronaut"></i> <span data-i18n="nav.accounts">Accounts</span></h2>
+        </div>
+        <div class="accounts-grid">
+          <div class="card">
+            <h3><i class="fa-solid fa-mask"></i> <span data-i18n="accounts.offline">Offline Account (Cracked)</span></h3>
+            <p class="muted" data-i18n="accounts.offlineDesc">A name without registration — type any name and play.</p>
+            <div class="row">
+              <input type="text" id="offlineName" data-i18n-ph="accounts.namePh" placeholder="Your in-game name...">
+              <button id="addOffline" class="btn"><i class="fa-solid fa-plus"></i> <span data-i18n="accounts.add">Add</span></button>
+            </div>
+            <label class="switch-row">
+              <input type="checkbox" id="offlineModeToggle" checked>
+              <span class="switch"></span>
+              <span data-i18n="accounts.offlineMode">Offline mode (log in without a paid account)</span>
+            </label>
+          </div>
+          <div class="card">
+            <h3><i class="fa-brands fa-microsoft"></i> <span data-i18n="accounts.ms">Microsoft Account</span></h3>
+            <p class="muted" data-i18n="accounts.msDesc">Sign in with your official account if you own the game.</p>
+            <button id="msLoginBtn" class="btn btn-ms"><i class="fa-brands fa-microsoft"></i> <span data-i18n="accounts.login">Sign In</span></button>
+            <div id="msBox" class="ms-box" hidden>
+              <p class="muted small" style="margin:0" data-i18n="accounts.msBox">Open the Microsoft page, enter the code below, then sign in with your account. The launcher finishes the login automatically.</p>
+              <div class="row">
+                <div class="ms-code" id="msCode">....-....</div>
+                <button id="msCopyBtn" class="ghost-btn" data-i18n-title="accounts.copyCode" title="Copy code"><i class="fa-solid fa-copy"></i></button>
+              </div>
+              <a id="msLink" href="#" class="btn btn-ms" style="text-decoration:none" data-i18n="accounts.openMs">Open Microsoft page</a>
+              <div class="progress-track"><div class="progress-fill" id="msProgress"></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="tab-head sub"><h3><i class="fa-solid fa-users"></i> <span data-i18n="accounts.addedHead">Added Accounts</span></h3></div>
+        <div class="account-list" id="accountList"></div>
+      </section>
+
+      <section class="tab" id="tab-settings">
+        <div class="tab-head">
+          <h2><i class="fa-solid fa-gear"></i> <span data-i18n="nav.settings">Settings</span></h2>
+        </div>
+        <div class="settings-grid">
+          <div class="card">
+            <h3><i class="fa-solid fa-language"></i> <span data-i18n="settings.language">Language</span></h3>
+            <div class="select-wrap"><select id="langSetting"></select></div>
+          </div>
+          <div class="card">
+            <h3><i class="fa-solid fa-microchip"></i> <span data-i18n="settings.memory">Memory</span></h3>
+            <div class="row">
+              <input type="range" id="memSetting" min="1" max="16" step="1" value="2">
+              <b id="memSettingVal">2 GB</b>
+            </div>
+          </div>
+          <div class="card">
+            <h3><i class="fa-solid fa-cloud-arrow-up"></i> <span data-i18n="settings.elyby">Ely.by — show your skin to others</span></h3>
+            <input type="text" id="elybyEmailSetting" data-i18n-ph="settings.elybyEmailPh" placeholder="Ely.by account email" autocomplete="off">
+            <input type="password" id="elybyPasswordSetting" data-i18n-ph="settings.elybyPasswordPh" placeholder="Ely.by password" autocomplete="off">
+            <p class="muted small" data-i18n="settings.elybyDesc">Create a free account at ely.by with the same name as your in-game name, and enter its details here. Then press "Upload to Ely.by automatically" in the Skins tab to upload and activate the skin from the launcher directly. Note: for other players to see your skin, your Ely.by username must match your in-game name (change it at <span class="ltr">account.ely.by/profile/username</span>).</p>
+            <div class="row">
+              <button id="testElyby" class="ghost-btn"><i class="fa-solid fa-plug"></i> <span data-i18n="settings.testAccount">Test account</span></button>
+              <span id="elybyStatus" class="muted small"></span>
+            </div>
+          </div>
+        </div>
+        <button id="saveSettings" class="btn"><i class="fa-solid fa-floppy-disk"></i> <span data-i18n="settings.save">Save Settings</span></button>
+
+        <div class="tab-head sub"><h3><i class="fa-solid fa-boxes-stacked"></i> <span data-i18n="settings.manageInstances">Manage Installed Versions</span></h3></div>
+        <div class="instance-manage-list" id="instanceManageList"></div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-overlay" id="installModal" hidden>
+    <div class="modal">
+      <h3 id="installModalTitle"><i class="fa-solid fa-boxes-stacked"></i> <span id="installModalVersion" class="ltr"></span></h3>
+      <p class="muted" style="margin:0" data-i18n="install.desc">Choose the installation type — the launcher downloads Java and libraries automatically.</p>
+      <div class="seg" id="installLoaderSeg">
+        <button data-loader="" class="active"><span data-i18n="loader.vanilla">Vanilla</span></button>
+        <button data-loader="fabric"><i class="fa-solid fa-bolt"></i> <span data-i18n="loader.fabric">Fabric</span></button>
+        <button data-loader="forge"><i class="fa-solid fa-fire-flame-curved"></i> <span data-i18n="loader.forge">Forge</span></button>
+      </div>
+      <div class="field" id="installLoaderVersionField" hidden>
+        <label id="installLoaderVersionLabel"><i class="fa-solid fa-bolt"></i> <span data-i18n="install.loaderVersion">Loader version</span></label>
+        <div class="select-wrap"><select id="installLoaderVersionSelect"></select></div>
+      </div>
+      <div class="modal-actions">
+        <button id="installCancelBtn" class="ghost-btn" data-i18n="common.cancel">Cancel</button>
+        <button id="installConfirmBtn" class="btn"><i class="fa-solid fa-download"></i> <span data-i18n="common.install">Install</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <div class="update-bar" id="updateBar" hidden>
+    <span id="updateText"></span>
+    <button id="updateBtn" class="btn btn-sm"></button>
+  </div>
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
