@@ -1,23 +1,32 @@
-OmniLauncher — Open-Source Minecraft Launcher (Electron)
+# OmniLauncher — Open-Source Minecraft Launcher (Electron)
 
-A solo-developer, open-source alternative Minecraft launcher built with Electron and Express, using a lightweight HTML/CSS interface instead of a heavier UI framework like React.
+A solo-developer, open-source alternative Minecraft launcher built with **Electron + Express**, using a lightweight HTML/CSS interface instead of a heavier UI framework like React.
 
-Actual features (verified from source):
+## Features
 
-Microsoft account sign-in via the standard device-code OAuth flow, implemented the same way other open-source launchers do it
-Alternative sign-in via ely.by for players without an original Microsoft account
-Forge and Fabric mod loader support
-Mod downloads through a CurseForge proxy
-Skin management
-Multiple Java version management
-Auto-updater that checks and pulls new releases from GitHub
+- **Accounts**: Microsoft sign-in via the standard device-code OAuth flow, plus offline (cracked) accounts and **ely.by** sign-in for players without an original Microsoft account.
+- **Loaders**: Forge and Fabric mod loader support with automatic Java detection/download.
+- **Mods tab**:
+  - Search mods from **Modrinth** and **CurseForge** separately or combined ("All sources" merges both and deduplicates cross-platform duplicates, preferring the Modrinth copy).
+  - Search by **any Minecraft version** ("All versions") even before installing a version, with automatic version-compatibility filtering when one is selected.
+  - Install mods, **resource packs**, **shaders**, and **maps** directly into the game folder.
+  - Automatic dependency installation and missing-mod repair.
+- **Skins**: thousands of skins from The Skindex, with official Microsoft upload, local install via CustomSkinLoader, and one-click **ely.by** upload.
+- **Java**: multiple Java version management.
+- **Auto-updater**: checks and pulls new releases from GitHub.
 
-Current state:
+## Download
 
-Very new project (0 stars, 0 watchers), single developer, recently created account
-Source is distributed as a zipped archive rather than browsable directly in the repo
-No community testing or review history to vouch for its reliability
-Auto-updater grants the developer the ability to silently replace the app on future runs
+Grab the latest portable build from the [Releases](https://github.com/ksnymy920-art/OmniLauncher/releases) page — download `OmniLauncher.exe` and run it. No install needed.
 
-Evidence that it is not harmful viruses.
-https://www.virustotal.com/gui/file/55473f9ce7351e23662f386b78e2a2e11a72e5a289667163c7194084a390e2cb
+## Building
+
+```bash
+npm install
+npm run build:app     # produces portable OmniLauncher.exe in dist/
+```
+
+## Notes
+
+- Source is browsable directly in this repository.
+- Virus-total report for reference: https://www.virustotal.com/gui/file/55473f9ce7351e23662f386b78e2a2e11a72e5a289667163c7194084a390e2cb
