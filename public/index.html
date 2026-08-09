@@ -24,9 +24,10 @@
       <nav class="nav">
         <button class="nav-btn active" data-tab="home"><i class="fa-solid fa-house"></i><span data-i18n="nav.home">Home</span></button>
         <button class="nav-btn" data-tab="versions"><i class="fa-solid fa-boxes-stacked"></i><span data-i18n="nav.versions">Versions</span></button>
-        <button class="nav-btn" data-tab="mods"><i class="fa-solid fa-puzzle-piece"></i><span data-i18n="nav.mods">Mods</span></button>
+        <button class="nav-btn" data-tab="mods"><i class="fa-solid fa-puzzle-piece"></i><span data-i18n="nav.mods">Add-ons</span></button>
         <button class="nav-btn" data-tab="skins"><i class="fa-solid fa-shirt"></i><span data-i18n="nav.skins">Skins</span></button>
         <button class="nav-btn" data-tab="accounts"><i class="fa-solid fa-user-astronaut"></i><span data-i18n="nav.accounts">Accounts</span></button>
+        <button class="nav-btn" data-tab="data"><i class="fa-solid fa-folder-tree"></i><span data-i18n="nav.data">Data</span></button>
         <button class="nav-btn" data-tab="settings"><i class="fa-solid fa-gear"></i><span data-i18n="nav.settings">Settings</span></button>
       </nav>
       <div class="sidebar-foot">
@@ -78,7 +79,11 @@
         <div class="console-wrap">
           <div class="console-head">
             <span><i class="fa-solid fa-terminal"></i> <span data-i18n="home.console">Console</span></span>
-            <button id="clearConsole" class="ghost-btn"><i class="fa-solid fa-eraser"></i> <span data-i18n="home.clear">Clear</span></button>
+            <div class="row">
+              <button id="copyLogsBtn" class="ghost-btn"><i class="fa-solid fa-copy"></i> <span data-i18n="home.copyLog">Copy</span></button>
+              <button id="uploadLogsBtn" class="ghost-btn"><i class="fa-solid fa-cloud-arrow-up"></i> <span data-i18n="home.uploadLogs">Upload to mclo.gs</span></button>
+              <button id="clearConsole" class="ghost-btn"><i class="fa-solid fa-eraser"></i> <span data-i18n="home.clear">Clear</span></button>
+            </div>
           </div>
           <div id="missingBanner" class="missing-banner" hidden></div>
           <div id="console"></div>
@@ -95,7 +100,7 @@
 
       <section class="tab" id="tab-mods">
         <div class="tab-head">
-          <h2><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="nav.mods">Mods</span></h2>
+          <h2><i class="fa-solid fa-puzzle-piece"></i> <span data-i18n="nav.mods">Add-ons</span></h2>
           <div class="row">
             <button id="modsOpenBtn" class="ghost-btn"><i class="fa-solid fa-folder-open"></i> <span id="modsOpenLabel">Open mods folder</span></button>
             <button id="modsRefreshBtn" class="ghost-btn"><i class="fa-solid fa-rotate"></i> <span data-i18n="common.refresh">Refresh</span></button>
@@ -108,6 +113,7 @@
           <button data-type="shader"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="mods.typeShader">Shaders</span></button>
           <button data-type="resourcepack"><i class="fa-solid fa-palette"></i> <span data-i18n="mods.typeRes">Resource Packs</span></button>
           <button data-type="world"><i class="fa-solid fa-earth-americas"></i> <span data-i18n="mods.typeWorld">Maps</span></button>
+          <button data-type="modpack"><i class="fa-solid fa-box-archive"></i> <span data-i18n="mods.typePack">Modpacks</span></button>
         </div>
 
         <div class="mods-toolbar">
@@ -115,7 +121,7 @@
             <i class="fa-solid fa-magnifying-glass"></i>
             <input type="text" id="modSearch" data-i18n-ph="mods.searchPh" placeholder="Search mods... (e.g. JEI)">
           </div>
-          <div class="field">
+          <div class="field" id="modVersionField">
             <label><i class="fa-solid fa-cubes"></i> <span data-i18n="mods.version">Version</span></label>
             <div class="select-wrap"><select id="modVersionSelect"></select></div>
           </div>
@@ -126,6 +132,8 @@
                 <option value="" data-i18n="mods.auto">Auto</option>
                 <option value="fabric" data-i18n="loader.fabric">Fabric</option>
                 <option value="forge" data-i18n="loader.forge">Forge</option>
+                <option value="neoforge" data-i18n="loader.neoforge">NeoForge</option>
+                <option value="quilt" data-i18n="loader.quilt">Quilt</option>
               </select>
             </div>
           </div>
@@ -140,11 +148,19 @@
             </div>
           </div>
           <button id="modSearchBtn" class="btn"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="common.search">Search</span></button>
+          <button id="modPackLocalBtn" class="btn" hidden><i class="fa-solid fa-hard-drive"></i> <span data-i18n="mods.importLocal">Import modpack from PC</span></button>
           <button id="modUseMainBtn" class="ghost-btn" data-i18n-title="mods.fromMain" title="Use version from Home"><i class="fa-solid fa-arrow-right-arrow-left"></i> <span data-i18n="mods.fromMain">Use version from Home</span></button>
         </div>
+        <p class="muted small" id="modPackTargetHint" hidden><i class="fa-solid fa-circle-info"></i> <span data-i18n="mods.packTargetDesc">Choose your Minecraft version and loader above — they are used when the modpack itself doesn't specify them.</span></p>
+        <input type="file" id="modPackFile" accept=".zip,.mrpack" hidden>
 
-        <div class="mods-installed-head">
-          <h3><i class="fa-solid fa-boxes-stacked"></i> <span id="modsInstalledHead">Installed Mods</span></h3>
+        <div class="mods-installed-head" id="modsInstalledHeadBox">
+          <div class="row">
+            <h3><i class="fa-solid fa-boxes-stacked"></i> <span id="modsInstalledHead">Installed Mods</span></h3>
+            <button class="ghost-btn" id="modsInstalledToggle"><i class="fa-solid fa-eye"></i> <span id="modsInstalledToggleLabel" data-i18n="mods.showInstalled">Show</span></button>
+            <button class="ghost-btn" id="modsShowPacksBtn" hidden><i class="fa-solid fa-box-archive"></i> <span data-i18n="mods.showPackMods">Modpack add-ons</span></button>
+            <button class="ghost-btn" id="modsShowManualBtn" hidden><i class="fa-solid fa-download"></i> <span data-i18n="mods.showManual">Manually installed</span></button>
+          </div>
           <span class="mods-installed-path" id="modsInstalledPath"></span>
         </div>
         <div class="mods-installed" id="modsInstalled"></div>
@@ -243,6 +259,33 @@
         <div class="account-list" id="accountList"></div>
       </section>
 
+      <section class="tab" id="tab-data">
+        <div class="tab-head">
+          <h2><i class="fa-solid fa-folder-tree"></i> <span data-i18n="nav.data">Data</span></h2>
+        </div>
+        <div class="field" style="max-width:340px">
+          <label><i class="fa-solid fa-cubes"></i> <span data-i18n="home.instance">Installed Version</span></label>
+          <div class="select-wrap"><select id="dataInstanceSelect"></select></div>
+        </div>
+
+        <div class="tab-head sub"><h3><i class="fa-solid fa-camera"></i> <span data-i18n="data.screenshots">Screenshots</span></h3></div>
+        <p class="muted" data-i18n="data.shotsDesc">View, open and delete screenshots that Minecraft saved for the selected version (located in the game folder's "screenshots" directory).</p>
+        <div class="row">
+          <button id="shotsOpenBtn" class="ghost-btn"><i class="fa-solid fa-folder-open"></i> <span data-i18n="data.openShots">Open screenshots folder</span></button>
+          <button id="shotsRefreshBtn" class="ghost-btn"><i class="fa-solid fa-rotate"></i> <span data-i18n="common.refresh">Refresh</span></button>
+        </div>
+        <div class="shots-list" id="shotsList">
+          <div class="vrow muted" data-i18n="data.noShots">No screenshots yet — press F2 in the game.</div>
+        </div>
+
+        <div class="tab-head sub"><h3><i class="fa-solid fa-box-archive"></i> <span data-i18n="data.backups">Backups</span></h3></div>
+        <p class="muted" data-i18n="data.backupsDesc">Create a full backup of the selected version's game folder (worlds, mods, configs, screenshots...). Restoring replaces the current files with the backup's contents.</p>
+        <div class="row">
+          <button id="backupCreateBtn" class="btn"><i class="fa-solid fa-plus"></i> <span data-i18n="data.createBackup">Create backup</span></button>
+        </div>
+        <div class="backup-list" id="backupList"></div>
+      </section>
+
       <section class="tab" id="tab-settings">
         <div class="tab-head">
           <h2><i class="fa-solid fa-gear"></i> <span data-i18n="nav.settings">Settings</span></h2>
@@ -286,6 +329,8 @@
         <button data-loader="" class="active"><span data-i18n="loader.vanilla">Vanilla</span></button>
         <button data-loader="fabric"><i class="fa-solid fa-bolt"></i> <span data-i18n="loader.fabric">Fabric</span></button>
         <button data-loader="forge"><i class="fa-solid fa-fire-flame-curved"></i> <span data-i18n="loader.forge">Forge</span></button>
+        <button data-loader="neoforge"><i class="fa-solid fa-fire"></i> <span data-i18n="loader.neoforge">NeoForge</span></button>
+        <button data-loader="quilt"><i class="fa-solid fa-quilt"></i> <span data-i18n="loader.quilt">Quilt</span></button>
       </div>
       <div class="field" id="installLoaderVersionField" hidden>
         <label id="installLoaderVersionLabel"><i class="fa-solid fa-bolt"></i> <span data-i18n="install.loaderVersion">Loader version</span></label>

@@ -8,11 +8,16 @@ const mojang = require('./lib/mojang')
 const java = require('./lib/java')
 const fabric = require('./lib/fabric')
 const forge = require('./lib/forge')
+const neoforge = require('./lib/neoforge')
+const quilt = require('./lib/quilt')
 const ms = require('./lib/microsoft')
 const launchLib = require('./lib/launch')
 const mods = require('./lib/mods')
+const modpacks = require('./lib/modpacks')
 const modfix = require('./lib/modfix')
 const skins = require('./lib/skins')
+const logs = require('./lib/logs')
+const backups = require('./lib/backups')
 
 function resolvePort() {
   const argIdx = process.argv.indexOf('--port')
@@ -39,6 +44,7 @@ const gameLogs = []
 let logOffset = 0
 const runningGames = new Map()
 const gameMissing = new Map()
+const stopRequested = new Set()
 
 function createJob(type, label) {
   const id = randomUUID()
@@ -163,10 +169,19 @@ async function prepareInstance(instance, job) {
   setJob(job, { label: 'ملفات النسخة' })
   const files = await mojang.ensureVersionFiles(instance.versionId, (p) => setJob(job, { label: p.label, current: p.current, total: p.total }))
 
+  if (instance.loader && !instance.loaderVersion) {
+    setJob(job, { label: 'تحديد إصدار اللودر' })
+    await resolveLoaderVersion(instance)
+  }
+
   let fabricProfile = null
   let fabricArtifacts = []
   let forgeJson = null
   let forgeArtifacts = []
+  let neoforgeJson = null
+  let neoforgeArtifacts = []
+  let quiltProfile = null
+  let quiltArtifacts = []
   if (instance.loader === 'fabric') {
     if (!instance.loaderVersion) throw new Error('اختر إصدار فابريك')
     setJob(job, { label: 'تحميل فابريك' })
@@ -179,12 +194,24 @@ async function prepareInstance(instance, job) {
     forgeArtifacts = mojang.librariesToArtifacts(forgeJson.libraries)
     setJob(job, { label: `تحميل مكتبات فورج (${forgeArtifacts.length})` })
     await mojang.ensureArtifacts(forgeArtifacts, (done, total) => setJob(job, { label: `فورج ${done}/${total}`, current: done, total }))
+  } else if (instance.loader === 'neoforge') {
+    if (!instance.loaderVersion) throw new Error('اختر إصدار نيو فورج')
+    setJob(job, { label: `تحميل نيو فورج ${instance.loaderVersion}` })
+    neoforgeJson = await neoforge.ensureInstalled(instance.versionId, instance.loaderVersion, javaBin, (label) => setJob(job, { label: String(label).slice(0, 60) }))
+    neoforgeArtifacts = mojang.librariesToArtifacts(neoforgeJson.libraries)
+    setJob(job, { label: `تحميل مكتبات نيو فورج (${neoforgeArtifacts.length})` })
+    await mojang.ensureArtifacts(neoforgeArtifacts, (done, total) => setJob(job, { label: `نيو فورج ${done}/${total}`, current: done, total }))
+  } else if (instance.loader === 'quilt') {
+    if (!instance.loaderVersion) throw new Error('اختر إصدار كوِلت')
+    setJob(job, { label: 'تحميل كوِلت' })
+    quiltProfile = await quilt.profile(instance.versionId, instance.loaderVersion)
+    quiltArtifacts = await quilt.ensureQuiltLibraries(quiltProfile, (done, total) => setJob(job, { label: `كوِلت ${done}/${total}`, current: done, total }))
   }
 
   setJob(job, { label: 'تجهيز النيتفز' })
   const nativesDir = await mojang.ensureNatives(files.natives, instanceKey(instance.versionId, instance.loader), null, json)
 
-  return { json, files, fabricProfile, fabricArtifacts, forgeJson, forgeArtifacts, javaBin, nativesDir }
+  return { json, files, fabricProfile, fabricArtifacts, forgeJson, forgeArtifacts, neoforgeJson, neoforgeArtifacts, quiltProfile, quiltArtifacts, javaBin, nativesDir }
 }
 
 function classpathFor(prep, versionId) {
@@ -193,6 +220,8 @@ function classpathFor(prep, versionId) {
   for (const a of prep.files.artifacts) parts.push(path.join(P.libraries, a.path))
   parts.push(mojang.clientJarFile(versionId))
   for (const a of prep.fabricArtifacts) parts.push(path.join(P.libraries, a.path))
+  for (const a of prep.neoforgeArtifacts) parts.push(path.join(P.libraries, a.path))
+  for (const a of prep.quiltArtifacts) parts.push(path.join(P.libraries, a.path))
   return launchLib.buildClasspath(parts)
 }
 
@@ -228,7 +257,26 @@ app.get('/api/versions/:id/info', async (req, res) => {
 
 function validLoaderVersion(loader, version) {
   if (!loader) return true
-  return !!version && version !== 'undefined' && version !== 'null'
+  return version !== 'undefined' && version !== 'null'
+}
+
+async function resolveLoaderVersion(instance) {
+  const mc = instance.versionId
+  if (!mc) return
+  if (instance.loader === 'fabric') {
+    const list = await fabric.loaders(mc)
+    const v = (list.find((x) => x.stable) || list[0] || {}).version
+    if (v) instance.loaderVersion = v
+  } else if (instance.loader === 'quilt') {
+    const list = await quilt.loaders(mc)
+    if (list[0]) instance.loaderVersion = list[0].version
+  } else if (instance.loader === 'forge') {
+    const v = await forge.versions(mc)
+    instance.loaderVersion = v.recommended || v.latest || null
+  } else if (instance.loader === 'neoforge') {
+    const v = await neoforge.versions(mc)
+    instance.loaderVersion = v.recommended || v.latest || null
+  }
 }
 
 app.post('/api/install', (req, res) => {
@@ -272,10 +320,31 @@ app.post('/api/instances/delete', (req, res) => {
   const c = cfg.load()
   delete c.instances[key]
   cfg.save()
-  for (const dir of [path.join(cfg.paths().game, key), path.join(cfg.paths().natives, key)]) {
-    try { fs.rmSync(dir, { recursive: true, force: true }) } catch (e) {}
+  const errors = []
+  const targets = [path.join(cfg.paths().game, key), path.join(cfg.paths().natives, key)]
+  const loader = inst.loader
+  const ver = inst.loaderVersion
+  const mc = inst.versionId
+  if (loader && ver && (loader === 'forge' || loader === 'neoforge')) {
+    const versionsDir = cfg.paths().versions
+    const candidates = [`${loader}-${ver}`, `${mc}-${loader}-${ver}`, `${mc}-${ver}`]
+    for (const id of candidates) {
+      const dir = path.join(versionsDir, id)
+      if (fs.existsSync(dir)) targets.push(dir)
+    }
   }
-  res.json({ ok: true })
+  for (const dir of targets) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true })
+    } catch (e) {
+      errors.push(dir)
+    }
+  }
+  if (errors.length) {
+    res.json({ ok: true, warning: 'لم تُحذف بعض الملفات لأنها قيد الاستخدام: ' + errors.map((d) => path.basename(d)).join(', ') })
+  } else {
+    res.json({ ok: true })
+  }
 })
 
 app.post('/api/play', (req, res) => {
@@ -301,6 +370,7 @@ app.post('/api/play', (req, res) => {
 
   runJob(job, async () => {
     const prep = await prepareInstance(instance, job)
+    cfg.setInstance(key, { ...cfg.getInstance(key), ...instance, status: 'preparing' })
     const settings = cfg.load().settings
     const mem = memory || settings.memory || 2048
     const jvm = (typeof jvmArgs === 'string' ? jvmArgs : settings.jvmArgs) || ''
@@ -317,16 +387,9 @@ app.post('/api/play', (req, res) => {
       if (fs.existsSync(skinFile)) {
         const mcVersion = prep.json.id || instance.versionId
         try {
-          if (instance.loader) {
-            const modFile = await skins.ensureCustomSkinLoader(gameDir, mcVersion)
-            logLine('>> CustomSkinLoader: ' + path.basename(modFile))
-            skins.installOfflineSkinLocal(gameDir, fs.readFileSync(skinFile), account.name)
-            skins.removeOfflineSkinPack(gameDir)
-            logLine('>> تم تطبيق السكن المحلي: ' + (account.skin.name || ''))
-          } else {
-            skins.installOfflineSkin(gameDir, fs.readFileSync(skinFile), mcVersion)
-            logLine('>> تم تطبيق السكن المحلي: ' + (account.skin.name || ''))
-          }
+          skins.installOfflineSkin(gameDir, fs.readFileSync(skinFile), mcVersion)
+          skins.removeAutoCustomSkinLoader(gameDir)
+          logLine('>> تم تطبيق السكن المحلي: ' + (account.skin.name || ''))
         } catch (e) {
           logLine('خطأ تطبيق السكن المحلي: ' + e.message)
         }
@@ -334,15 +397,17 @@ app.post('/api/play', (req, res) => {
     }
 
     let args
-    if (prep.forgeJson) {
+    if (prep.forgeJson || prep.neoforgeJson) {
+      const loaderJson = prep.forgeJson || prep.neoforgeJson
+      const loaderArtifacts = prep.forgeJson ? prep.forgeArtifacts : prep.neoforgeArtifacts
       const cp = launchLib.buildClasspath([
         ...prep.files.artifacts.map((a) => path.join(cfg.paths().libraries, a.path)),
         mojang.clientJarFile(versionId),
-        ...prep.forgeArtifacts.map((a) => path.join(cfg.paths().libraries, a.path))
+        ...loaderArtifacts.map((a) => path.join(cfg.paths().libraries, a.path))
       ])
-      const mainClass = prep.forgeJson.mainClass || 'net.minecraft.launchwrapper.Launch'
+      const mainClass = loaderJson.mainClass || 'net.minecraft.launchwrapper.Launch'
       args = launchLib.buildForgeArgs({
-        forgeJson: prep.forgeJson,
+        forgeJson: loaderJson,
         baseJson: prep.json,
         classpath: cp,
         mainClass,
@@ -357,7 +422,7 @@ app.post('/api/play', (req, res) => {
         height: h
       })
     } else {
-      const mainClass = prep.fabricProfile ? fabric.mainClass(prep.fabricProfile) : 'net.minecraft.client.main.Main'
+      const mainClass = prep.quiltProfile ? quilt.mainClass(prep.quiltProfile) : prep.fabricProfile ? fabric.mainClass(prep.fabricProfile) : 'net.minecraft.client.main.Main'
       args = launchLib.buildCommand({
         javaBin: prep.javaBin,
         memory: mem,
@@ -386,10 +451,12 @@ app.post('/api/play', (req, res) => {
     child.on('exit', (code) => {
       const rec = gameMissing.get(key)
       runningGames.delete(key)
-      logLine(`اللعبة انتهت برمز الخروج ${code}`)
+      const stopped = stopRequested.has(key)
+      stopRequested.delete(key)
+      logLine(stopped ? `اللعبة أُوقفت` : `اللعبة انتهت برمز الخروج ${code}`)
       const inst = cfg.getInstance(key)
-      if (inst) cfg.setInstance(key, { ...inst, status: code === 0 ? 'stopped' : 'crashed' })
-      if (code !== 0 && rec && rec.missing.size && !rec.autoStarted) {
+      if (inst) cfg.setInstance(key, { ...inst, status: stopped ? 'stopped' : code === 0 ? 'stopped' : 'crashed' })
+      if (!stopped && code !== 0 && rec && rec.missing.size && !rec.autoStarted) {
         rec.autoStarted = true
         runMissingFix(key)
       }
@@ -408,6 +475,7 @@ app.post('/api/stop', (req, res) => {
   const targets = key ? [runningGames.get(key)].filter(Boolean) : Array.from(runningGames.values())
   if (!targets.length) return res.json({ ok: true, already: true })
   for (const g of targets) {
+    stopRequested.add(g.key)
     if (process.platform === 'win32') {
       require('child_process').exec(`taskkill /PID ${g.pid} /T /F`, () => {})
     } else {
@@ -445,6 +513,122 @@ app.post('/api/game/logs/clear', (req, res) => {
   res.json({ ok: true })
 })
 
+app.post('/api/logs/upload', async (req, res) => {
+  try {
+    const text = gameLogs.map((l) => l.line).join('\n')
+    if (!text.trim()) return res.status(400).json({ error: 'لا يوجد لوجات لرفعها' })
+    const url = await logs.upload(text)
+    logLine(`>> اللوجات رُفعت: ${url}`)
+    res.json({ url })
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/logs', (req, res) => {
+  const offset = parseInt(req.query.offset || '0', 10)
+  res.json({ logs: gameLogs.filter((l) => l.n >= offset).map((l) => ({ n: l.n, t: l.t, line: l.line })) })
+})
+
+function shotsDir(instanceId) {
+  return path.join(cfg.paths().game, safeInstanceKey(instanceId), 'screenshots')
+}
+
+function safeInstanceKey(key) {
+  return String(key || '').replace(/[\\/:*?"<>|]/g, '_')
+}
+
+app.get('/api/screenshots', (req, res) => {
+  const dir = shotsDir(req.query.instance || '')
+  try {
+    const items = fs.existsSync(dir)
+      ? fs.readdirSync(dir)
+          .filter((f) => /\.(png|jpg|jpeg)$/i.test(f))
+          .map((f) => {
+            const st = fs.statSync(path.join(dir, f))
+            return { file: f, size: st.size, modified: st.mtime }
+          })
+          .sort((a, b) => new Date(b.modified) - new Date(a.modified))
+      : []
+    res.json({ items })
+  } catch (e) {
+    res.status(400).json({ error: e.message })
+  }
+})
+
+app.get('/api/screenshots/file', (req, res) => {
+  const dir = shotsDir(req.query.instance || '')
+  const file = path.basename(String(req.query.name || ''))
+  const full = path.join(dir, file)
+  if (!file || !fs.existsSync(full)) return res.status(404).json({ error: 'not found' })
+  res.sendFile(full)
+})
+
+app.get('/api/icon', (req, res) => {
+  const instance = String(req.query.instance || '')
+  const file = String(req.query.file || '')
+  const safe = String(instance + '-' + file).replace(/[^a-zA-Z0-9._-]/g, '_')
+  const full = path.join(cfg.paths().data, 'icons', safe + '.png')
+  if (!instance || !file || !fs.existsSync(full)) return res.status(404).json({ error: 'not found' })
+  res.sendFile(full)
+})
+
+app.post('/api/screenshots/delete', (req, res) => {
+  const { instance, name } = req.body || {}
+  if (!instance || !name) return res.status(400).json({ error: 'instance و name مطلوبان' })
+  const full = path.join(shotsDir(instance), path.basename(String(name)))
+  if (fs.existsSync(full)) fs.unlinkSync(full)
+  res.json({ ok: true })
+})
+
+app.post('/api/screenshots/open', (req, res) => {
+  const { instance } = req.body || {}
+  if (!instance) return res.status(400).json({ error: 'instance مطلوب' })
+  const dir = shotsDir(instance)
+  fs.mkdirSync(dir, { recursive: true })
+  require('child_process').exec(process.platform === 'win32' ? `explorer "${dir}"` : `open "${dir}"`)
+  res.json({ dir })
+})
+
+app.get('/api/backups', (req, res) => {
+  const instance = req.query.instance || ''
+  if (!instance) return res.json({ items: [] })
+  res.json({ items: backups.list(instance) })
+})
+
+app.post('/api/backups', (req, res) => {
+  const { instance } = req.body || {}
+  if (!instance) return res.status(400).json({ error: 'instance مطلوب' })
+  if (runningGames.has(instance)) return res.status(400).json({ error: 'أوقف اللعبة قبل عمل نسخة احتياطية' })
+  const job = createJob('backup', `نسخة احتياطية لـ ${instance}`)
+  runJob(job, async () => {
+    const r = backups.create(instance, path.join(cfg.paths().game, safeInstanceKey(instance)))
+    logLine(`>> تم إنشاء النسخة الاحتياطية ${r.file} (${(r.size / 1048576).toFixed(1)} MB)`)
+    return r
+  })
+  res.json({ jobId: job.id })
+})
+
+app.post('/api/backups/restore', (req, res) => {
+  const { instance, file } = req.body || {}
+  if (!instance || !file) return res.status(400).json({ error: 'instance و file مطلوبان' })
+  if (runningGames.has(instance)) return res.status(400).json({ error: 'أوقف اللعبة قبل الاستعادة' })
+  const job = createJob('backup-restore', `استعادة ${file}`)
+  runJob(job, async () => {
+    const r = backups.restore(instance, file, path.join(cfg.paths().game, safeInstanceKey(instance)))
+    logLine(`>> تمت استعادة النسخة الاحتياطية ${r.file}`)
+    return r
+  })
+  res.json({ jobId: job.id })
+})
+
+app.post('/api/backups/delete', (req, res) => {
+  const { instance, file } = req.body || {}
+  if (!instance || !file) return res.status(400).json({ error: 'instance و file مطلوبان' })
+  backups.remove(instance, file)
+  res.json({ ok: true })
+})
+
 app.get('/api/jobs', (req, res) => {
   res.json(Object.values(jobs))
 })
@@ -466,6 +650,22 @@ app.get('/api/fabric/loaders/:mc', async (req, res) => {
 app.get('/api/forge/versions/:mc', async (req, res) => {
   try {
     res.json(await forge.versions(req.params.mc))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/neoforge/versions/:mc', async (req, res) => {
+  try {
+    res.json(await neoforge.versions(req.params.mc))
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/quilt/loaders/:mc', async (req, res) => {
+  try {
+    res.json(await quilt.loaders(req.params.mc))
   } catch (e) {
     res.status(500).json({ error: e.message })
   }
@@ -505,10 +705,44 @@ app.get('/api/mods/versions', async (req, res) => {
 })
 
 app.post('/api/mods/install', (req, res) => {
-  const { source, id, version, loader, instanceId, forceUrl, forceFile, forceVersionId, fileId, slug, title, type } = req.body
+  const { source, id, version, loader, instanceId, forceUrl, forceFile, forceVersionId, fileId, slug, title, icon, type } = req.body
   if (!id || !instanceId) return res.status(400).json({ error: 'id و instanceId مطلوبان' })
-  const job = createJob('mods', type && type !== 'mod' ? 'تثبيت محتوى' : 'تثبيت مود')
+  const isPack = type === 'modpack'
+  const job = createJob(isPack ? 'modpack' : 'mods', isPack ? 'تثبيت مودباك' : type && type !== 'mod' ? 'تثبيت محتوى' : 'تثبيت مود')
   runJob(job, async () => {
+    if (isPack) {
+      const r = await modpacks.installPack(
+        {
+          source: source || 'modrinth',
+          id,
+          versionId: forceVersionId || '',
+          fileId: fileId || '',
+          forceUrl: forceUrl || '',
+          forceFile: forceFile || '',
+          slug: slug || '',
+          title: title || '',
+          icon: icon || '',
+          fallbackVersion: version || '',
+          fallbackLoader: loader || ''
+        },
+        {
+          ensureInstance: async (mcVersion, packLoader, packLoaderVersion) => {
+            const key = cfg.instanceKey(mcVersion, packLoader || null)
+            const existing = cfg.getInstance(key)
+            if (existing && (existing.status === 'installed' || existing.status === 'stopped' || existing.status === 'crashed')) return key
+            const instance = { versionId: mcVersion, loader: packLoader || null, loaderVersion: packLoaderVersion || null }
+            cfg.setInstance(key, { ...instance, status: 'installing' })
+            await prepareInstance(instance, job)
+            cfg.setInstance(key, { ...cfg.getInstance(key), ...instance, status: 'installed' })
+            return key
+          },
+          onLabel: (label) => setJob(job, { label: String(label).slice(0, 70) }),
+          onProgress: (cur, total) => setJob(job, { label: `المودباك ${cur}/${total}`, current: cur, total })
+        }
+      )
+      logLine(`>> تم استيراد المودباك ${r.name || r.instanceId} (ملفات ${r.files}، مودات ${r.mods}${r.failed ? '، فشل تحميل ' + r.failed : ''})`)
+      return r
+    }
     const r = await mods.install(
       {
         source: source || 'modrinth',
@@ -522,10 +756,58 @@ app.post('/api/mods/install', (req, res) => {
         forceVersionId: forceVersionId || '',
         fileId: fileId || '',
         slug: slug || '',
-        title: title || ''
+        title: title || '',
+        icon: icon || ''
       },
       (v) => setJob(job, { label: `تحميل ${v.filename}` })
     )
+    return r
+  })
+  res.json({ jobId: job.id })
+})
+
+app.post('/api/mods/install-local', (req, res) => {
+  const { file, version, loader, content } = req.body || {}
+  let filePath = file
+  if (Array.isArray(content) && content.length) {
+    filePath = path.join(cfg.paths().tmp, `pack-upload-${Date.now()}.zip`)
+    try {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true })
+      fs.writeFileSync(filePath, Buffer.from(content))
+    } catch (e) {
+      return res.status(400).json({ error: 'تعذر حفظ الملف المرفوع' })
+    }
+  }
+  if (!filePath || typeof filePath !== 'string') return res.status(400).json({ error: 'file مطلوب' })
+  if (!/\.(zip|mrpack)$/i.test(filePath)) return res.status(400).json({ error: 'اختر ملف modpack بامتداد zip أو mrpack' })
+  if (!fs.existsSync(filePath)) return res.status(400).json({ error: 'ملف المودباك غير موجود' })
+  const job = createJob('modpack', 'استيراد مودباك محلي')
+  runJob(job, async () => {
+    const r = await modpacks.installPack(
+      {
+        source: 'local',
+        id: path.basename(filePath),
+        forceFile: filePath,
+        title: path.basename(filePath).replace(/\.(zip|mrpack)$/i, ''),
+        fallbackVersion: version || '',
+        fallbackLoader: loader || ''
+      },
+      {
+        ensureInstance: async (mcVersion, packLoader, packLoaderVersion) => {
+          const key = cfg.instanceKey(mcVersion, packLoader || null)
+          const existing = cfg.getInstance(key)
+          if (existing && (existing.status === 'installed' || existing.status === 'stopped' || existing.status === 'crashed')) return key
+          const instance = { versionId: mcVersion, loader: packLoader || null, loaderVersion: packLoaderVersion || null }
+          cfg.setInstance(key, { ...instance, status: 'installing' })
+          await prepareInstance(instance, job)
+          cfg.setInstance(key, { ...cfg.getInstance(key), ...instance, status: 'installed' })
+          return key
+        },
+        onLabel: (label) => setJob(job, { label: String(label).slice(0, 70) }),
+        onProgress: (cur, total) => setJob(job, { label: `المودباك ${cur}/${total}`, current: cur, total })
+      }
+    )
+    logLine(`>> تم استيراد المودباك المحلي ${r.name || r.instanceId} (ملفات ${r.files}، مودات ${r.mods}${r.failed ? '، فشل تحميل ' + r.failed : ''})`)
     return r
   })
   res.json({ jobId: job.id })
@@ -540,8 +822,45 @@ app.get('/api/mods/installed', (req, res) => {
 app.post('/api/mods/remove', (req, res) => {
   const { instanceId, file, type } = req.body
   if (!instanceId || !file) return res.status(400).json({ error: 'instanceId و file مطلوبان' })
-  mods.remove(instanceId, type || 'mod', file)
+  try {
+    mods.remove(instanceId, type || 'mod', file)
+  } catch (e) {
+    console.error('[remove error]', e)
+    const msg = String(e.message || e)
+    const hint = /EPERM|EACCES|EBUSY/.test(msg) ? ' — الملف محمي أو مستخدم من برنامج آخر (مثل OneDrive أو Minecraft). أغلق ما يستخدمه وحاول مجدداً.' : ''
+    return res.status(400).json({ error: 'تعذر حذف ' + file + hint })
+  }
   res.json({ ok: true })
+})
+
+app.post('/api/mods/pack-remove', (req, res) => {
+  const { instanceId, packId } = req.body || {}
+  if (!instanceId) return res.status(400).json({ error: 'instanceId مطلوب' })
+  const inst = cfg.getInstance(instanceId)
+  if (!inst) return res.status(400).json({ error: 'النسخة غير موجودة' })
+  const packs = Array.isArray(inst.packs) ? inst.packs : (inst.pack ? [inst.pack] : [])
+  if (!packs.length) return res.status(400).json({ error: 'لا يوجد مودباك مثبت في هذه النسخة' })
+  const idx = packId ? packs.findIndex((p) => p && String(p.id) === String(packId)) : -1
+  const pack = idx >= 0 ? packs[idx] : (packs.length === 1 ? packs[0] : null)
+  if (!pack) return res.status(400).json({ error: 'المودباك غير موجود' })
+  const files = Array.isArray(pack.files) ? pack.files : []
+  const gameDir = path.join(cfg.paths().game, safeInstanceKey(instanceId))
+  let removed = 0
+  for (const rel of files) {
+    const relPath = String(rel || '').replace(/\\/g, '/')
+    if (!relPath || relPath.startsWith('.') || relPath.includes('..')) continue
+    const target = path.normalize(path.join(gameDir, relPath))
+    if (target === gameDir || !target.startsWith(gameDir + path.sep)) continue
+    try {
+      if (fs.existsSync(target)) {
+        mods.rmForce(target)
+        removed++
+      }
+    } catch (e) {}
+  }
+  const next = packs.filter((_, i) => i !== idx)
+  cfg.setInstance(instanceId, { ...inst, packs: next, pack: undefined })
+  res.json({ ok: true, removed })
 })
 
 app.post('/api/mods/open', (req, res) => {

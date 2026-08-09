@@ -204,6 +204,7 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
 .console-line.ok { color: #7ff0a8; }
 .console-line.info { color: #9cc2ff; }
 .console-line.warn { color: #ffd37a; }
+.console-line.dim { color: #6b7a96; opacity: 0.8; }
 
 .missing-banner {
   display: flex; align-items: center; justify-content: space-between; gap: 14px;
@@ -241,6 +242,18 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
 .muted.small { font-size: 12px; margin-top: 8px; margin-bottom: 0; }
 
 .version-list, .java-list, .account-list { display: flex; flex-direction: column; gap: 10px; }
+.shots-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.shot-card {
+  position: relative; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 14px; overflow: hidden; transition: .18s;
+}
+.shot-card:hover { border-color: rgba(61,220,122,.35); transform: translateY(-1px); }
+.shot-card img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: #000; }
+.shot-meta { padding: 10px 12px; }
+.shot-name { font-weight: 800; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shot-sub { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
+.shot-del { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.55); border-color: rgba(255,255,255,.15); }
+.backup-list { display: flex; flex-direction: column; gap: 10px; }
 .vrow {
   display: flex; align-items: center; gap: 14px;
   padding: 14px 18px; border-radius: 14px;
@@ -255,6 +268,7 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
 .tag.release { background: rgba(61,220,122,.15); color: var(--green); }
 .tag.snapshot { background: rgba(88,166,255,.15); color: var(--accent); }
 .tag.installed { background: rgba(255,201,77,.15); color: var(--gold); }
+.tag.pack { background: rgba(168,130,255,.16); color: #a882ff; }
 .tag.running { background: rgba(255,92,108,.18); color: var(--red); }
 
 /* ---------- Cards ---------- */
@@ -334,11 +348,12 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
 }
 .mfile-icon {
   width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
-  display: grid; place-items: center;
+  display: grid; place-items: center; overflow: hidden;
   background: rgba(255,201,77,.14); color: var(--gold);
 }
+.mfile-icon img { width: 100%; height: 100%; object-fit: cover; }
 .mfile-info { flex: 1; min-width: 0; }
-.mfile-name { font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: ltr; text-align: right; }
+.mfile-name { font-weight: 700; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
 .mfile-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .mfile-sub .tag { margin-inline-start: 6px; }
 .mods-list { display: flex; flex-direction: column; gap: 10px; }

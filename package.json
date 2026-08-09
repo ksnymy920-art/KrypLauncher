@@ -1,6 +1,6 @@
 {
   "name": "omnilauncher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Minecraft launcher with multi Java versions, Fabric/Forge support, offline & Microsoft accounts",
   "author": "OmniLauncher",
   "main": "electron-main.js",

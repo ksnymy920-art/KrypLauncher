@@ -14,8 +14,9 @@ const state = {
   activeJobId: null,
   installVersionId: '',
   installLoader: '',
-  mods: { results: [], installed: [], source: 'all', searching: false, page: 1, type: 'mod' },
-  skins: { items: [], page: 1, query: '', loading: false, favorites: [], favOnly: false }
+  mods: { results: [], installed: [], source: 'all', searching: false, page: 1, type: 'mod', showInstalled: false, showPack: false, showManual: true },
+  skins: { items: [], page: 1, query: '', loading: false, favorites: [], favOnly: false },
+  data: { instance: '', screenshots: [], backups: [] }
 }
 
 const $ = (id) => document.getElementById(id)
@@ -23,7 +24,7 @@ const $ = (id) => document.getElementById(id)
 let playUI = { running: false, busy: false, anyRunning: false }
 
 function loaderName(l) {
-  return l === 'fabric' ? t('loader.fabric') : l === 'forge' ? t('loader.forge') : l === 'neoforge' ? t('loader.neoforge') : l ? l : t('loader.vanilla')
+  return l === 'fabric' ? t('loader.fabric') : l === 'forge' ? t('loader.forge') : l === 'neoforge' ? t('loader.neoforge') : l === 'quilt' ? t('loader.quilt') : l ? l : t('loader.vanilla')
 }
 
 function statusLabel(st) {
@@ -55,6 +56,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + name))
   if (name === 'mods') modsTabOpen()
   if (name === 'skins') skinsTabOpen()
+  if (name === 'data') dataTabOpen()
 }
 
 function setPlayButton(running, busy, anyRunning) {
@@ -92,6 +94,7 @@ function renderAll() {
   populateSkinAccountSelect()
   renderModsTypeUI()
   renderModsInstalled()
+  populateDataInstanceSelect()
 }
 
 function populateLangSelect() {
@@ -141,7 +144,7 @@ function renderInstancesManage() {
     div.className = 'vrow'
     div.innerHTML = `
       <div class="v-info">
-        <div class="v-name">${escapeHtml(key)}</div>
+        <div class="v-name">${escapeHtml(key)}${packTagHtml(inst)}</div>
         <div class="v-sub">${loaderName(inst.loader)} ${inst.loaderVersion || ''} · ${t('inst.status', { status: statusLabel(inst.status) })}</div>
       </div>
       <div class="row">
@@ -183,7 +186,7 @@ function isInstalled(versionId, loader) {
 }
 
 function isInstalledAny(versionId) {
-  return isInstalled(versionId, '') || isInstalled(versionId, 'fabric') || isInstalled(versionId, 'forge')
+  return isInstalled(versionId, '') || isInstalled(versionId, 'fabric') || isInstalled(versionId, 'forge') || isInstalled(versionId, 'neoforge') || isInstalled(versionId, 'quilt')
 }
 
 function renderInstanceSelect() {
@@ -210,7 +213,9 @@ function renderInstanceSelect() {
   } else {
     for (const k of keys) {
       const inst = state.instances[k]
-      sel.appendChild(new Option(`${k} — ${loaderName(inst.loader)}`, k))
+      const pks = packsOf(inst)
+      const packTag = pks.length ? ` · ${pks.length > 1 ? pks[0].name + ' +' + (pks.length - 1) : pks[0].name}` : ''
+      sel.appendChild(new Option(`${k} — ${loaderName(inst.loader)}${packTag}`, k))
     }
     if (cur && keys.includes(cur)) sel.value = cur
     else sel.value = keys[0]
@@ -228,7 +233,9 @@ function onInstanceChange() {
   }
   state.loader = inst.loader || ''
   updateHeroSub(key)
-  $('instanceDetail').textContent = `${loaderName(inst.loader)} ${inst.loaderVersion || ''}${inst.status && inst.status !== 'installed' ? ' · ' + statusLabel(inst.status) : ''}`
+  const pks = packsOf(inst)
+  const packTxt = pks.length ? ' · ' + (pks.length > 1 ? pks[0].name + ' +' + (pks.length - 1) : pks[0].name) : ''
+  $('instanceDetail').textContent = `${loaderName(inst.loader)} ${inst.loaderVersion || ''}${packTxt}${inst.status && inst.status !== 'installed' ? ' · ' + statusLabel(inst.status) : ''}`
 }
 
 function updateHeroSub(key) {
@@ -291,13 +298,54 @@ function openInstallModal(versionId) {
   installSetLoader('')
 }
 
+async function loadNeoForgeVersions(mc) {
+  const sel = $('installLoaderVersionSelect')
+  $('installLoaderVersionLabel').innerHTML = '<i class="fa-solid fa-fire"></i> ' + t('install.neoforgeVersion')
+  try {
+    const info = await api('/api/neoforge/versions/' + encodeURIComponent(mc))
+    const opts = []
+    if (info.recommended) opts.push('⭐ ' + t('install.recommended', { v: info.recommended }))
+    if (info.latest && info.latest !== info.recommended) opts.push(t('install.latest', { v: info.latest }))
+    if (!opts.length) throw new Error(t('install.neoforgeNotCompat'))
+    sel.innerHTML = ''
+    for (const o of opts) {
+      const parts = o.split(': ')
+      const ver = parts.length > 1 ? parts[1] : o
+      sel.appendChild(new Option(o, ver))
+    }
+    $('installLoaderVersionField').hidden = false
+  } catch (e) {
+    $('installLoaderVersionField').hidden = true
+    toast(e.message, 'error')
+  }
+}
+
+async function loadQuiltLoaders(mc) {
+  const sel = $('installLoaderVersionSelect')
+  $('installLoaderVersionLabel').innerHTML = '<i class="fa-solid fa-quilt"></i> ' + t('install.quiltVersion')
+  try {
+    const loaders = await api('/api/quilt/loaders/' + encodeURIComponent(mc))
+    if (!loaders.length) throw new Error(t('install.quiltNotCompat'))
+    sel.innerHTML = ''
+    for (const l of loaders.slice(0, 12)) {
+      sel.appendChild(new Option((l.stable ? '⭐ ' : '') + l.version, l.version))
+    }
+    $('installLoaderVersionField').hidden = false
+  } catch (e) {
+    $('installLoaderVersionField').hidden = true
+    toast(e.message, 'error')
+  }
+}
+
 function installSetLoader(name) {
   state.installLoader = name
   document.querySelectorAll('#installLoaderSeg button').forEach((b) => b.classList.toggle('active', b.dataset.loader === name))
-  if (name === 'fabric' || name === 'forge') {
+  if (name === 'fabric' || name === 'forge' || name === 'neoforge' || name === 'quilt') {
     if (state.installVersionId) {
       if (name === 'fabric') loadFabricLoaders(state.installVersionId)
-      else loadForgeVersions(state.installVersionId)
+      else if (name === 'forge') loadForgeVersions(state.installVersionId)
+      else if (name === 'neoforge') loadNeoForgeVersions(state.installVersionId)
+      else loadQuiltLoaders(state.installVersionId)
     }
   } else {
     $('installLoaderVersionField').hidden = true
@@ -309,7 +357,7 @@ async function confirmInstall() {
   if (!versionId) return
   const loader = state.installLoader || ''
   let loaderVersion = ''
-  if (loader === 'fabric' || loader === 'forge') {
+  if (loader === 'fabric' || loader === 'forge' || loader === 'neoforge' || loader === 'quilt') {
     loaderVersion = $('installLoaderVersionSelect').value
     if (!loaderVersion || loaderVersion === 'undefined' || loaderVersion === 'null') return toast(t('mods.chooseLoaderVersion'), 'error')
   }
@@ -636,6 +684,172 @@ async function testElyby() {
   }
 }
 
+function populateDataInstanceSelect() {
+  const sel = $('dataInstanceSelect')
+  if (!sel) return
+  const keys = Object.keys(state.instances || {}).filter((k) => state.instances[k] && state.instances[k].status !== 'installing')
+  const cur = state.data.instance || (typeof selectedInstanceKey === 'function' ? selectedInstanceKey() : '')
+  sel.innerHTML = ''
+  if (!keys.length) {
+    sel.appendChild(new Option(t('versions.noInst'), ''))
+  } else {
+    for (const k of keys) sel.appendChild(new Option(`${k} — ${loaderName(state.instances[k].loader)}`, k))
+    if (cur && keys.includes(cur)) sel.value = cur
+    else sel.value = keys[0]
+  }
+  state.data.instance = sel.value
+}
+
+function dataInstance() {
+  const sel = $('dataInstanceSelect')
+  return sel ? sel.value : ''
+}
+
+async function dataTabOpen() {
+  populateDataInstanceSelect()
+  await Promise.all([loadScreenshots(), loadBackups()])
+}
+
+async function loadScreenshots() {
+  const key = dataInstance()
+  if (!key) {
+    state.data.screenshots = []
+    renderScreenshots()
+    return
+  }
+  try {
+    const r = await api('/api/screenshots?instance=' + encodeURIComponent(key))
+    state.data.screenshots = r.items || []
+  } catch (e) {
+    state.data.screenshots = []
+  }
+  renderScreenshots()
+}
+
+function renderScreenshots() {
+  const box = $('shotsList')
+  if (!box) return
+  const items = state.data.screenshots
+  if (!items.length) {
+    box.innerHTML = '<div class="vrow muted">' + t('data.noShots') + '</div>'
+    return
+  }
+  box.innerHTML = ''
+  for (const s of items) {
+    const src = '/api/screenshots/file?instance=' + encodeURIComponent(state.data.instance) + '&name=' + encodeURIComponent(s.file)
+    const div = document.createElement('div')
+    div.className = 'shot-card'
+    div.innerHTML = `
+      <img src="${src}" alt="${escapeHtml(s.file)}" loading="lazy">
+      <div class="shot-meta">
+        <div class="shot-name" title="${escapeHtml(s.file)}">${escapeHtml(s.file)}</div>
+        <div class="shot-sub">${(s.size / 1048576).toFixed(2)} MB · ${new Date(s.modified).toLocaleString()}</div>
+      </div>
+      <button class="icon-btn danger shot-del" title="${t('common.delete')}"><i class="fa-solid fa-trash"></i></button>`
+    div.querySelector('.shot-del').addEventListener('click', async () => {
+      if (!confirm(t('data.deleteShot', { file: s.file }))) return
+      try {
+        await api('/api/screenshots/delete', { method: 'POST', body: JSON.stringify({ instance: state.data.instance, name: s.file }) })
+        toast(t('data.deletedShot', { file: s.file }), 'success')
+        await loadScreenshots()
+      } catch (e) {
+        toast(e.message, 'error')
+      }
+    })
+    box.appendChild(div)
+  }
+}
+
+async function loadBackups() {
+  const key = dataInstance()
+  if (!key) {
+    state.data.backups = []
+    renderBackups()
+    return
+  }
+  try {
+    const r = await api('/api/backups?instance=' + encodeURIComponent(key))
+    state.data.backups = r.items || []
+  } catch (e) {
+    state.data.backups = []
+  }
+  renderBackups()
+}
+
+function renderBackups() {
+  const box = $('backupList')
+  if (!box) return
+  const items = state.data.backups
+  if (!items.length) {
+    box.innerHTML = '<div class="vrow muted">' + t('data.noBackups') + '</div>'
+    return
+  }
+  box.innerHTML = ''
+  for (const b of items) {
+    const div = document.createElement('div')
+    div.className = 'vrow'
+    div.innerHTML = `
+      <div class="v-info">
+        <div class="v-name">${escapeHtml(b.file)}</div>
+        <div class="v-sub">${(b.size / 1048576).toFixed(1)} MB · ${new Date(b.modified).toLocaleString()}</div>
+      </div>
+      <div class="row">
+        <button class="btn backup-restore"><i class="fa-solid fa-rotate-left"></i> ${t('data.restore')}</button>
+        <button class="icon-btn danger backup-del" title="${t('common.delete')}"><i class="fa-solid fa-trash"></i></button>
+      </div>`
+    div.querySelector('.backup-restore').addEventListener('click', async (e) => {
+      if (!confirm(t('data.restoreConfirm', { file: b.file }))) return
+      const btn = e.currentTarget
+      btn.disabled = true
+      try {
+        const res = await api('/api/backups/restore', { method: 'POST', body: JSON.stringify({ instance: state.data.instance, file: b.file }) })
+        state.activeJobId = res.jobId
+        toast(t('data.restoring', { file: b.file }))
+      } catch (err) {
+        btn.disabled = false
+        toast(err.message, 'error')
+      }
+    })
+    div.querySelector('.backup-del').addEventListener('click', async () => {
+      if (!confirm(t('data.deleteBackup', { file: b.file }))) return
+      try {
+        await api('/api/backups/delete', { method: 'POST', body: JSON.stringify({ instance: state.data.instance, file: b.file }) })
+        toast(t('data.deletedBackup', { file: b.file }), 'success')
+        await loadBackups()
+      } catch (e) {
+        toast(e.message, 'error')
+      }
+    })
+    box.appendChild(div)
+  }
+}
+
+async function createBackup() {
+  const key = dataInstance()
+  if (!key) return toast(t('versions.noInst'), 'error')
+  const btn = $('backupCreateBtn')
+  btn.disabled = true
+  try {
+    const res = await api('/api/backups', { method: 'POST', body: JSON.stringify({ instance: key }) })
+    state.activeJobId = res.jobId
+    toast(t('data.backingUp', { key }))
+  } catch (e) {
+    toast(e.message, 'error')
+  } finally {
+    btn.disabled = false
+  }
+}
+
+async function openShots() {
+  const key = dataInstance()
+  if (!key) return toast(t('versions.noInst'), 'error')
+  try {
+    await api('/api/screenshots/open', { method: 'POST', body: JSON.stringify({ instance: key }) })
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
 function escapeHtml(s) {
   const d = document.createElement('div')
   d.textContent = s
@@ -712,10 +926,20 @@ function logLine(line, cls) {
   const div = document.createElement('div')
   div.className = 'console-line ' + (cls || '')
   const t = new Date(line.t).toLocaleTimeString()
-  div.innerHTML = `<span class="t">[${t}]</span>${escapeHtml(line.line)}`
+  div.innerHTML = `<span class="t">[${t}]</span>${escapeHtml(tConsoleLine(line.line))}`
   box.appendChild(div)
   while (box.childElementCount > 500) box.removeChild(box.firstChild)
   box.scrollTop = box.scrollHeight
+}
+
+function logClass(line) {
+  const lw = String(line || '').toLowerCase()
+  if (/fatal|severe|crash|crashed|exception|error|\berr:|فشل/.test(lw)) return 'err'
+  if (/warn(ing)?/.test(lw)) return 'warn'
+  if (/✓|done|success|successfully|finished|ready|launched|تم تنزيل|تم تحميل/.test(lw)) return 'ok'
+  if (/info|loading|started|starting|loaded|staging|building|تجهيز/.test(lw)) return 'info'
+  if (/^\s*at |^\s+\.\.\.\d+ more/.test(String(line))) return 'dim'
+  return ''
 }
 
 async function tick() {
@@ -753,6 +977,13 @@ async function tick() {
       refreshModsInstalled()
       runModsSearch()
     }
+    if (playJob.type === 'modpack') {
+      if (!playJob.error) {
+        const d = playJob.data || {}
+        toast(d.name ? t('mods.importedPack', { name: d.name, key: d.instanceId }) : t('mods.importedPackDone'), 'success')
+      }
+      await refreshModsInstalled()
+    }
     if (playJob.type === 'modfix') {
       if (!playJob.error) {
         const d = playJob.data || []
@@ -769,6 +1000,19 @@ async function tick() {
         const accountsRes = await api('/api/accounts')
         state.accounts = accountsRes.accounts
         renderAccounts()
+      }
+    }
+    if (playJob.type === 'backup') {
+      if (!playJob.error) {
+        const d = playJob.data || {}
+        toast(t('data.backupDone', { file: d.file || '' }), 'success')
+      }
+      await loadBackups()
+    }
+    if (playJob.type === 'backup-restore') {
+      if (!playJob.error) {
+        const d = playJob.data || {}
+        toast(t('data.restoreDone', { file: d.file || '' }), 'success')
       }
     }
     await refreshInstances()
@@ -797,13 +1041,7 @@ async function tick() {
   const logRes = await api('/api/game/logs?offset=' + state.logOffset)
   if (logRes.logs && logRes.logs.length) {
     for (const l of logRes.logs) {
-      const lw = l.line.toLowerCase()
-      let cls = ''
-      if (lw.includes('exception') || lw.includes('error') || lw.includes('fatal')) cls = 'err'
-      else if (lw.includes('warn')) cls = 'warn'
-      else if (lw.includes('info')) cls = 'info'
-      else if (lw.includes('done')) cls = 'ok'
-      logLine(l, cls)
+      logLine(l, logClass(l.line))
     }
     state.logOffset = logRes.logs[logRes.logs.length - 1].n + 1
   }
@@ -859,12 +1097,48 @@ async function renderMissingBanner() {
   }
 }
 
+async function uploadLogs() {
+  const btn = $('uploadLogsBtn')
+  if (btn) btn.disabled = true
+  try {
+    const r = await api('/api/logs/upload', { method: 'POST' })
+    window.open(r.url, '_blank')
+    toast(t('home.logUploaded', { url: r.url }), 'success', 5000)
+  } catch (e) {
+    toast(t('home.logUploadFail', { msg: e.message }), 'error')
+  } finally {
+    if (btn) btn.disabled = false
+  }
+}
+
+async function copyLogs() {
+  const text = Array.from(document.querySelectorAll('#console .console-line')).map((d) => d.textContent).join('\n')
+  if (!text.trim()) return
+  try {
+    await navigator.clipboard.writeText(text)
+    toast(t('home.logCopied'), 'success')
+  } catch (e) {
+    try {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+      toast(t('home.logCopied'), 'success')
+    } catch (e2) {
+      toast(t('home.logCopyFail'), 'error')
+    }
+  }
+}
+
 async function refreshInstances() {
   try {
     state.instances = await api('/api/instances')
     renderInstanceSelect()
     renderVersionsTab()
     renderInstancesManage()
+    populateDataInstanceSelect()
   } catch (e) {}
 }
 
@@ -905,7 +1179,8 @@ const MOD_TYPE_KEYS = {
   mod: { open: 'mods.openFolder', head: 'mods.installedHead', count: 'mods.installedCount', folder: 'mods' },
   shader: { open: 'mods.openShaders', head: 'mods.installedShaders', count: 'mods.installedCount', folder: 'shaderpacks' },
   resourcepack: { open: 'mods.openRes', head: 'mods.installedRes', count: 'mods.installedCount', folder: 'resourcepacks' },
-  world: { open: 'mods.openWorlds', head: 'mods.installedWorlds', count: 'mods.installedCount', folder: 'saves' }
+  world: { open: 'mods.openWorlds', head: 'mods.installedWorlds', count: 'mods.installedCount', folder: 'saves' },
+  modpack: { open: 'mods.openPacks', head: 'mods.installedPacks', count: 'mods.installedCount', folder: 'mods' }
 }
 
 function renderModsTypeUI() {
@@ -915,14 +1190,28 @@ function renderModsTypeUI() {
   const head = $('modsInstalledHead')
   if (lbl) lbl.textContent = t(k.open)
   if (head) head.textContent = t(k.head)
+  const openBtn = $('modsOpenBtn')
+  if (openBtn) openBtn.hidden = type === 'modpack'
+  const versionField = $('modVersionField')
+  if (versionField) versionField.style.display = type === 'modpack' ? '' : ''
   const loaderField = $('modLoaderField')
-  if (loaderField) loaderField.style.display = type === 'mod' ? '' : 'none'
+  if (loaderField) loaderField.style.display = type === 'mod' || type === 'modpack' ? '' : 'none'
+  const packLocalBtn = $('modPackLocalBtn')
+  if (packLocalBtn) packLocalBtn.hidden = type !== 'modpack'
+  const packHint = $('modPackTargetHint')
+  if (packHint) packHint.hidden = type !== 'modpack'
   const source = $('modSourceSelect')
   if (source) {
     const prev = source.value
     source.innerHTML = ''
-    if (type === 'world') {
-      source.appendChild(new Option(t('mods.sourceOnly', { name: 'CurseForge' }), 'curseforge'))
+    if (type === 'world' || type === 'modpack') {
+      if (type === 'modpack') {
+        source.appendChild(new Option(t('mods.allSources'), 'all'))
+        source.appendChild(new Option('Modrinth', 'modrinth'))
+        source.appendChild(new Option('CurseForge', 'curseforge'))
+      } else {
+        source.appendChild(new Option(t('mods.sourceOnly', { name: 'CurseForge' }), 'curseforge'))
+      }
     } else {
       source.appendChild(new Option(t('mods.allSources'), 'all'))
       source.appendChild(new Option('Modrinth', 'modrinth'))
@@ -930,11 +1219,17 @@ function renderModsTypeUI() {
     }
     if (Array.from(source.options).some((o) => o.value === prev)) source.value = prev
   }
+  const instHead = $('modsInstalledHeadBox')
+  if (instHead) instHead.style.display = ''
+  const instList = $('modsInstalled')
+  if (instList) instList.style.display = ''
 }
 
 function setModType(type) {
   document.querySelectorAll('#modTypeSeg button').forEach((b) => b.classList.toggle('active', b.dataset.type === type))
   state.mods.type = type
+  state.mods.showPack = false
+  state.mods.showManual = true
   renderModsTypeUI()
   populateModVersionSelect()
   refreshModsInstalled()
@@ -947,12 +1242,23 @@ function modsInstanceKey() {
   return v + (l ? '-' + l : '')
 }
 
+function syncHomeInstance() {
+  const key = modsInstanceKey()
+  const sel = $('instanceSelect')
+  if (!sel || !key || !state.instances || !state.instances[key]) return
+  if (Array.from(sel.options).some((o) => o.value === key)) {
+    sel.value = key
+    onInstanceChange()
+  }
+}
+
 function modsFilter() {
+  const type = modType()
   return {
     version: $('modVersionSelect').value,
-    loader: modType() === 'mod' ? $('modLoaderSelect').value : '',
+    loader: type === 'mod' || type === 'modpack' ? $('modLoaderSelect').value : '',
     source: $('modSourceSelect').value,
-    type: modType()
+    type
   }
 }
 
@@ -980,6 +1286,7 @@ function populateModVersionSelect() {
 }
 
 async function modsTabOpen() {
+  await refreshInstances()
   populateModVersionSelect()
   if (state.loader === 'fabric' || state.loader === 'forge') $('modLoaderSelect').value = state.loader
   renderModsTypeUI()
@@ -989,6 +1296,11 @@ async function modsTabOpen() {
 
 async function refreshModsInstalled() {
   try {
+    state.instances = await api('/api/instances')
+    if (modType() === 'modpack') {
+      renderInstalledPacks()
+      return
+    }
     const key = modsInstanceKey()
     const files = await api('/api/mods/installed?instance=' + encodeURIComponent(key) + '&type=' + encodeURIComponent(modType()))
     state.mods.installed = files
@@ -998,11 +1310,104 @@ async function refreshModsInstalled() {
   } catch (e) {}
 }
 
+function packsOf(inst) {
+  if (inst && Array.isArray(inst.packs) && inst.packs.length) return inst.packs
+  if (inst && inst.pack) return [inst.pack]
+  return []
+}
+
+function packTagHtml(inst) {
+  const pks = packsOf(inst)
+  if (!pks.length) return ''
+  const label = pks.length > 1 ? (pks[0].name ? pks[0].name + ' +' + (pks.length - 1) : pks.length + ' packs') : (pks[0].name || '')
+  return label ? ' <span class="tag pack">' + escapeHtml(label) + '</span>' : ''
+}
+
+function renderInstalledPacks() {
+  const box = $('modsInstalled')
+  const toggle = $('modsInstalledToggle')
+  const showPacksBtn = $('modsShowPacksBtn')
+  const showManualBtn = $('modsShowManualBtn')
+  const instPath = $('modsInstalledPath')
+  if (toggle) toggle.hidden = true
+  if (showPacksBtn) showPacksBtn.hidden = true
+  if (showManualBtn) showManualBtn.hidden = true
+  if (instPath) instPath.textContent = ''
+  const packs = []
+  for (const [key, inst] of Object.entries(state.instances || {})) {
+    for (const pack of packsOf(inst)) packs.push({ key, pack })
+  }
+  if (!packs.length) {
+    box.innerHTML = '<div class="vrow muted">' + t('mods.noInstalledFor', { name: t('mods.typePack') }) + '</div>'
+    return
+  }
+  box.innerHTML = ''
+  for (const { key, pack } of packs) {
+    const nFiles = Array.isArray(pack.files) ? pack.files.length : 0
+    const div = document.createElement('div')
+    div.className = 'mfile'
+    div.innerHTML = `
+      <div class="mfile-icon">${pack.icon ? '<img src="' + escapeHtml(pack.icon) + '" alt="" style="width:36px;height:36px;border-radius:8px;object-fit:cover">' : '<i class="fa-solid fa-box-archive"></i>'}</div>
+      <div class="mfile-info">
+        <div class="mfile-name">${escapeHtml(pack.name || key)}</div>
+        <div class="mfile-sub">${escapeHtml(key)} · ${escapeHtml(pack.source || '')} ${nFiles ? '· ' + t('mods.packFiles', { n: nFiles }) : ''} <span class="tag installed">${t('mods.installedTag')}</span></div>
+      </div>
+      <button class="icon-btn" title="${t('mods.packRemoveTitle')}"><i class="fa-solid fa-trash"></i></button>`
+    div.querySelector('.icon-btn').addEventListener('click', async () => {
+      if (!confirm(t('mods.packRemoveConfirm', { name: pack.name || key, key }))) return
+      try {
+        const r = await api('/api/mods/pack-remove', { method: 'POST', body: JSON.stringify({ instanceId: key, packId: pack.id }) })
+        toast(t('mods.packRemoved', { n: r.removed || 0 }), 'success')
+        await refreshModsInstalled()
+      } catch (e) {
+        toast(e.message, 'error')
+      }
+    })
+    box.appendChild(div)
+  }
+}
+
 function renderModsInstalled() {
   const box = $('modsInstalled')
-  const list = state.mods.installed
+  const folder = (MOD_TYPE_KEYS[modType()] || MOD_TYPE_KEYS.mod).folder
+  const key = modsInstanceKey()
+  const inst = state.instances && state.instances[key]
+  const packs = packsOf(inst)
+  const filePack = new Map()
+  for (const p of packs) {
+    for (const f of (p && p.files || [])) {
+      const k = String(f || '').replace(/\\/g, '/').toLowerCase()
+      if (!filePack.has(k)) filePack.set(k, p.name || '')
+    }
+  }
+  const all = state.mods.installed || []
+  const isPackOf = (m) => !!filePack.get((folder + '/' + m.file).toLowerCase())
+  const hasPack = all.some(isPackOf)
+  const hasManual = all.some((m) => !isPackOf(m))
+  const toggle = $('modsInstalledToggle')
+  const toggleLabel = $('modsInstalledToggleLabel')
+  const showPacksBtn = $('modsShowPacksBtn')
+  const showManualBtn = $('modsShowManualBtn')
+  const instPath = $('modsInstalledPath')
+  if (toggle) toggle.hidden = false
+  if (toggle) toggle.classList.toggle('active', !!state.mods.showInstalled)
+  if (toggleLabel) toggleLabel.textContent = state.mods.showInstalled ? t('mods.hideInstalled') : t('mods.showInstalled')
+  if (instPath) instPath.textContent = state.mods.showInstalled ? (key ? `data\\game\\${key}\\${folder}` : '') : ''
+  if (showPacksBtn) showPacksBtn.hidden = !state.mods.showInstalled || !hasPack
+  if (showManualBtn) showManualBtn.hidden = !state.mods.showInstalled || !hasManual
+  if (showPacksBtn) showPacksBtn.classList.toggle('active', !!state.mods.showPack)
+  if (showManualBtn) showManualBtn.classList.toggle('active', !!state.mods.showManual)
+  if (!state.mods.showInstalled) {
+    box.innerHTML = ''
+    return
+  }
+  let list = all
+  if (!state.mods.showPack && state.mods.showManual) list = all.filter((m) => !isPackOf(m))
+  else if (state.mods.showPack && !state.mods.showManual) list = all.filter(isPackOf)
+  else if (!state.mods.showPack && !state.mods.showManual) list = []
   if (!list.length) {
-    box.innerHTML = '<div class="vrow muted">' + t('mods.noInstalled') + '</div>'
+    const typeName = { mod: 'mods.typeMod', shader: 'mods.typeShader', resourcepack: 'mods.typeRes', world: 'mods.typeWorld' }[modType()] || 'mods.typeMod'
+    box.innerHTML = '<div class="vrow muted">' + t('mods.noInstalledFor', { name: t(typeName) }) + '</div>'
     return
   }
   box.innerHTML = ''
@@ -1013,13 +1418,14 @@ function renderModsInstalled() {
   box.appendChild(head)
   const isWorld = modType() === 'world'
   for (const m of list) {
+    const fromPack = filePack.get((folder + '/' + m.file).toLowerCase()) || ''
     const div = document.createElement('div')
     div.className = 'mfile'
     div.innerHTML = `
-      <div class="mfile-icon"><i class="${isWorld ? 'fa-solid fa-earth-americas' : modType() === 'shader' ? 'fa-solid fa-wand-magic-sparkles' : modType() === 'resourcepack' ? 'fa-solid fa-palette' : 'fa-solid fa-cube'}"></i></div>
+      <div class="mfile-icon">${m.icon ? `<img src="${escapeHtml(m.icon)}" alt="" loading="lazy">` : `<i class="${isWorld ? 'fa-solid fa-earth-americas' : modType() === 'shader' ? 'fa-solid fa-wand-magic-sparkles' : modType() === 'resourcepack' ? 'fa-solid fa-palette' : 'fa-solid fa-cube'}"></i>`}</div>
       <div class="mfile-info">
-        <div class="mfile-name">${escapeHtml(m.file)}</div>
-        <div class="mfile-sub">${m.isDir ? t('mods.worldFolder') : (m.size / 1048576).toFixed(2) + ' MB'} · ${new Date(m.modified).toLocaleDateString()} <span class="tag installed">${t('mods.installedTag')}</span></div>
+        <div class="mfile-name">${escapeHtml(m.title || m.file)}</div>
+        <div class="mfile-sub">${m.isDir ? t('mods.worldFolder') : (m.size / 1048576).toFixed(2) + ' MB'} · ${new Date(m.modified).toLocaleDateString()} ${fromPack ? '<span class="tag pack">' + t('mods.fromPack', { name: fromPack }) + '</span>' : '<span class="tag installed">' + t('mods.installedTag') + '</span>'}</div>
       </div>
       <button class="icon-btn" title="${t('mods.deleteMod')}"><i class="fa-solid fa-trash"></i></button>`
     div.querySelector('.icon-btn').addEventListener('click', async () => {
@@ -1112,9 +1518,75 @@ function renderModsResults() {
           : `<button class="btn mod-dl" data-install="${m.id}"><i class="fa-solid fa-download"></i> ${t('common.install')}</button>`}
         <button class="ghost-btn mod-versions-btn" data-versions="${m.id}"><i class="fa-solid fa-list"></i> ${t('mods.versionsBtn')}</button>
       </div>`
-    if (!inst) div.querySelector('[data-install]').addEventListener('click', () => installMod(m.id))
+    if (!inst) div.querySelector('[data-install]').addEventListener('click', () => (modType() === 'modpack' ? importModpack(m) : installMod(m.id)))
     div.querySelector('[data-versions]').addEventListener('click', (e) => toggleModVersions(m, e.currentTarget))
     list.appendChild(div)
+  }
+}
+
+async function importModpack(m) {
+  const btn = document.querySelector(`[data-install="${m.id}"]`)
+  if (btn) {
+    btn.disabled = true
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + t('common.loading')
+  }
+  try {
+    const res = await api('/api/mods/install', {
+      method: 'POST',
+      body: JSON.stringify({ source: m.source || 'modrinth', id: m.id, instanceId: 'modpack', type: 'modpack', slug: m.slug, title: m.title, icon: m.icon || '', version: $('modVersionSelect').value, loader: $('modLoaderSelect').value })
+    })
+    state.activeJobId = res.jobId
+    toast(t('mods.importingPack'))
+  } catch (e) {
+    toast(e.message, 'error')
+  } finally {
+    if (btn) {
+      btn.disabled = false
+      btn.innerHTML = '<i class="fa-solid fa-box-archive"></i> ' + t('common.install')
+    }
+  }
+}
+
+async function importLocalModpack() {
+  const v = $('modVersionSelect').value
+  const l = $('modLoaderSelect').value
+  let filePath = null
+  if (window.filePicker && typeof window.filePicker.pick === 'function') {
+    try {
+      filePath = await window.filePicker.pick()
+    } catch (e) {}
+    if (!filePath) return
+  } else {
+    const input = $('modPackFile')
+    input.value = ''
+    input.click()
+    if (!input.files || !input.files.length) return
+    const file = input.files[0]
+    const bytes = await file.arrayBuffer()
+    const res = await fetch('/api/mods/install-local', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ file: file.name, version: v, loader: l, content: Array.from(new Uint8Array(bytes)) })
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new Error(data.error ? tServer(data.error) : t('err.connection'))
+    state.activeJobId = data.jobId
+    toast(t('mods.importingPack'))
+    return
+  }
+  const btn = $('modPackLocalBtn')
+  btn.disabled = true
+  try {
+    const res = await api('/api/mods/install-local', {
+      method: 'POST',
+      body: JSON.stringify({ file: filePath, version: v, loader: l })
+    })
+    state.activeJobId = res.jobId
+    toast(t('mods.importingPack'))
+  } catch (e) {
+    toast(e.message, 'error')
+  } finally {
+    btn.disabled = false
   }
 }
 
@@ -1127,7 +1599,7 @@ async function installMod(id) {
   try {
     const res = await api('/api/mods/install', {
       method: 'POST',
-      body: JSON.stringify({ source: src, id, version: f.version, loader: f.loader, instanceId: key, type: f.type, slug: m && m.slug, title: m && m.title })
+      body: JSON.stringify({ source: src, id, version: f.version, loader: f.loader, instanceId: key, type: f.type, slug: m && m.slug, title: m && m.title, icon: m && m.icon })
     })
     state.activeJobId = res.jobId
     toast(t('mods.installingMod'))
@@ -1174,7 +1646,7 @@ async function toggleModVersions(m, btn) {
             body: JSON.stringify({
               source: src, id: m.id, version: f.version, loader: f.loader, instanceId: modsInstanceKey(), type: f.type,
               forceUrl: v.url, forceFile: v.filename, forceVersionId: v.id, fileId: v.fileId,
-              slug: m.slug, title: m.title
+              slug: m.slug, title: m.title, icon: m.icon
             })
           })
           state.activeJobId = res.jobId
@@ -1208,6 +1680,8 @@ function bind() {
     $('console').innerHTML = ''
     api('/api/game/logs/clear', { method: 'POST' }).catch(() => {})
   })
+  $('uploadLogsBtn').addEventListener('click', uploadLogs)
+  $('copyLogsBtn').addEventListener('click', copyLogs)
   $('goToVersionsBtn').addEventListener('click', () => switchTab('versions'))
   $('manageInstancesBtn').addEventListener('click', () => switchTab('settings'))
 
@@ -1277,8 +1751,20 @@ function bind() {
     runModsSearch(1)
     toast(t('mods.appliedHome'), 'success')
   })
-  $('modVersionSelect').addEventListener('change', refreshModsInstalled)
-  $('modLoaderSelect').addEventListener('change', refreshModsInstalled)
+  $('modVersionSelect').addEventListener('change', () => { syncHomeInstance(); refreshModsInstalled() })
+  $('modLoaderSelect').addEventListener('change', () => { syncHomeInstance(); refreshModsInstalled() })
+  $('modsInstalledToggle').addEventListener('click', () => {
+    state.mods.showInstalled = !state.mods.showInstalled
+    renderModsInstalled()
+  })
+  $('modsShowPacksBtn').addEventListener('click', () => {
+    state.mods.showPack = !state.mods.showPack
+    renderModsInstalled()
+  })
+  $('modsShowManualBtn').addEventListener('click', () => {
+    state.mods.showManual = !state.mods.showManual
+    renderModsInstalled()
+  })
   $('modsOpenBtn').addEventListener('click', async () => {
     try {
       await api('/api/mods/open', { method: 'POST', body: JSON.stringify({ instanceId: modsInstanceKey(), type: modType() }) })
@@ -1290,6 +1776,8 @@ function bind() {
     await refreshModsInstalled()
     runModsSearch()
   })
+  $('modPackLocalBtn').addEventListener('click', importLocalModpack)
+  $('modPackFile').addEventListener('change', importLocalModpack)
 
   $('skinSearchBtn').addEventListener('click', () => loadSkins(1))
   $('skinSearch').addEventListener('keydown', (e) => e.key === 'Enter' && loadSkins(1))
@@ -1308,6 +1796,17 @@ function bind() {
     populateSkinAccountSelect()
     toast(t('skins.appliedHome'), 'success')
   })
+
+  const dataInstSel = $('dataInstanceSelect')
+  if (dataInstSel) {
+    dataInstSel.addEventListener('change', async () => {
+      state.data.instance = dataInstSel.value
+      await Promise.all([loadScreenshots(), loadBackups()])
+    })
+  }
+  $('shotsRefreshBtn').addEventListener('click', loadScreenshots)
+  $('shotsOpenBtn').addEventListener('click', openShots)
+  $('backupCreateBtn').addEventListener('click', createBackup)
 }
 
 function setupUpdaterUI() {

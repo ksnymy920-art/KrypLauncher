@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, ipcMain } = require('electron')
+const { app, BrowserWindow, shell, ipcMain, dialog } = require('electron')
 const net = require('net')
 const path = require('path')
 const updater = require('./lib/updater')
@@ -104,6 +104,16 @@ if (!gotLock) {
 
   ipcMain.on('app-update-install', () => {
     if (updateInfo && updateInfo._dest) updater.installUpdate(updateInfo._dest)
+  })
+
+  ipcMain.handle('pick-file', async () => {
+    if (!win) return null
+    const r = await dialog.showOpenDialog(win, {
+      title: 'Select a modpack file',
+      properties: ['openFile'],
+      filters: [{ name: 'Modpack', extensions: ['zip', 'mrpack'] }]
+    })
+    return r.canceled || !r.filePaths.length ? null : r.filePaths[0]
   })
 
   app.whenReady().then(async () => {

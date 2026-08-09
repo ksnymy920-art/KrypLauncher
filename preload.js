@@ -5,3 +5,7 @@ contextBridge.exposeInMainWorld('updater', {
   download: () => ipcRenderer.send('app-update-download'),
   install: () => ipcRenderer.send('app-update-install')
 })
+
+contextBridge.exposeInMainWorld('filePicker', {
+  pick: () => ipcRenderer.invoke('pick-file')
+})
