@@ -150,7 +150,5 @@ your own branded version. No secrets, no hidden strings.
          STOP CLICKING THROUGH BROKEN LAUNCHERS.
          PLAY EVERY ERA OF MINECRAFT WITH ONE APP: KRYPLAUNCHER.
 ================================================================================
-## Notes
+## 
 
-- Source is browsable directly in this repository.
-- Virus-total report for reference: https://www.virustotal.com/gui/file/55473f9ce7351e23662f386b78e2a2e11a72e5a289667163c7194084a390e2cb
