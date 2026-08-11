@@ -180,6 +180,16 @@ select { appearance: none; cursor: pointer; }
 }
 .seg button.active { background: linear-gradient(135deg, var(--green), var(--green2)); color: #06200f; }
 
+.install-confirm-box {
+  display: flex; flex-direction: column; gap: 8px; padding: 16px;
+  border: 1px solid var(--border); border-radius: 14px;
+  background: rgba(255,255,255,.03); margin: 4px 0 12px;
+}
+.install-confirm-loader { display: flex; align-items: center; gap: 8px; font-weight: 800; }
+.install-confirm-loader img { width: 30px; height: 30px; border-radius: 7px; object-fit: contain; background: rgba(255,255,255,.06); padding: 2px; }
+.install-confirm-version { font-size: 20px; font-weight: 900; direction: ltr; text-align: left; }
+.install-confirm-date { color: var(--muted); font-size: 12.5px; }
+
 input[type="range"] { -webkit-appearance: none; appearance: none; height: 8px; border-radius: 99px; background: rgba(255,255,255,.12); outline: none; padding: 0; border: none; cursor: pointer; }
 input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; border-radius: 50%; background: var(--green); border: 3px solid #0a0f1e; box-shadow: 0 0 10px rgba(34,183,99,.6); }
 input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--green); border: 3px solid #0a0f1e; }
@@ -546,3 +556,58 @@ input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius
   .nav-btn { justify-content: center; }
   .grid-3 { grid-template-columns: 1fr 1fr; }
 }
+
+/* ---------- Version loader bar ---------- */
+.loader-bar { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 12px; }
+.loader-chip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-radius: 12px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--border); color: var(--text);
+  font-weight: 700; font-size: 13.5px; transition: .18s;
+}
+.loader-chip svg, .loader-chip img { flex: none; }
+.loader-chip img { height: 28px; width: 28px; object-fit: contain; border-radius: 6px; background: rgba(255,255,255,.06); padding: 1px; }
+.loader-chip svg { width: 24px; height: 24px; }
+.loader-chip:hover { border-color: rgba(88,166,255,.45); transform: translateY(-2px); }
+.loader-chip.active {
+  background: linear-gradient(135deg, rgba(61,220,122,.18), rgba(34,183,99,.12));
+  border-color: var(--green); box-shadow: 0 6px 18px rgba(61,220,122,.18);
+}
+
+.branch-seg { display: flex; gap: 8px; margin: 2px 0 14px; }
+.branch-seg button {
+  padding: 7px 16px; border-radius: 10px; cursor: pointer; font-weight: 700; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--border); color: var(--muted); transition: .18s;
+}
+.branch-seg button:hover { color: var(--text); border-color: rgba(255,255,255,.2); }
+.branch-seg button.active {
+  background: linear-gradient(135deg, var(--accent), #3b82d6); color: #04121f; border-color: transparent;
+}
+
+/* ---------- Version cards grid ---------- */
+.version-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; padding-bottom: 8px; }
+.vcard {
+  position: relative; display: flex; flex-direction: column; align-items: stretch;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 12px; gap: 8px; transition: transform .18s, box-shadow .18s, border-color .18s;
+}
+.vcard:hover {
+  transform: translateY(-4px); border-color: rgba(61,220,122,.55); box-shadow: 0 10px 24px rgba(0,0,0,.35);
+}
+.vcard-badge {
+  position: absolute; top: 10px; right: 10px;
+  font-size: 10px; font-weight: 800; letter-spacing: .4px; padding: 3px 8px; border-radius: 99px;
+  background: rgba(88,166,255,.15); color: var(--accent);
+}
+.vcard-badge.release { background: rgba(61,220,122,.15); color: var(--green); }
+.vcard-badge.old { background: rgba(143,161,184,.15); color: var(--muted); }
+.vcard-name { font-size: 17px; font-weight: 900; margin-top: 20px; direction: ltr; text-align: left; }
+.vcard-date { color: var(--muted); font-size: 11.5px; }
+.vcard-btn {
+  margin-top: auto; width: 100%; padding: 8px 10px; border-radius: 9px; cursor: pointer;
+  background: linear-gradient(135deg, var(--green), var(--green2)); color: #06200f;
+  font-weight: 800; font-size: 13px; border: none; transition: .18s;
+}
+.vcard-btn:hover { filter: brightness(1.1); }
+.version-note { color: var(--muted); font-size: 12px; padding: 2px 2px 8px; }
+.vcard-empty { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 30px 0; }

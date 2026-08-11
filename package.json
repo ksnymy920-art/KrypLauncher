@@ -1,6 +1,6 @@
 {
   "name": "kryplauncher",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Minecraft launcher with multi Java versions, Fabric/Forge support, offline & Microsoft accounts",
   "author": "KrypLauncher",
   "main": "electron-main.js",
@@ -8,8 +8,7 @@
   "scripts": {
     "start": "electron .",
     "build": "pkg server.js --targets node18-win-x64 --output KrypLauncher-cli.exe",
-    "build:app": "electron-builder --win portable",
-    "icon": "node make-icon.js"
+    "build:app": "electron-builder --win portable"
   },
   "pkg": {
     "assets": [

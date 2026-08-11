@@ -97,6 +97,9 @@
           <h2><i class="fa-solid fa-boxes-stacked"></i> <span data-i18n="nav.versions">Versions</span></h2>
           <button id="refreshVersions" class="ghost-btn"><i class="fa-solid fa-rotate"></i> <span data-i18n="common.refresh">Refresh</span></button>
         </div>
+        <div class="loader-bar" id="versionLoaderBar"></div>
+        <div class="branch-seg" id="versionBranchSeg"></div>
+        <div class="version-note" id="versionNote"></div>
         <div class="version-list" id="versionList"></div>
       </section>
 
@@ -359,22 +362,16 @@
 
   <div class="modal-overlay" id="installModal" hidden>
     <div class="modal">
-      <h3 id="installModalTitle"><i class="fa-solid fa-boxes-stacked"></i> <span id="installModalVersion" class="ltr"></span></h3>
-      <p class="muted" style="margin:0" data-i18n="install.desc">Choose the installation type — the launcher downloads Java and libraries automatically.</p>
-      <div class="seg" id="installLoaderSeg">
-        <button data-loader="" class="active"><span data-i18n="loader.vanilla">Vanilla</span></button>
-        <button data-loader="fabric"><i class="fa-solid fa-bolt"></i> <span data-i18n="loader.fabric">Fabric</span></button>
-        <button data-loader="forge"><i class="fa-solid fa-fire-flame-curved"></i> <span data-i18n="loader.forge">Forge</span></button>
-        <button data-loader="neoforge"><i class="fa-solid fa-fire"></i> <span data-i18n="loader.neoforge">NeoForge</span></button>
-        <button data-loader="quilt"><i class="fa-solid fa-quilt"></i> <span data-i18n="loader.quilt">Quilt</span></button>
+      <h3><i class="fa-solid fa-circle-question"></i> <span data-i18n="install.confirmTitle">Confirm installation</span></h3>
+      <div class="install-confirm-box">
+        <div class="install-confirm-loader" id="installConfirmLoader"></div>
+        <div class="install-confirm-version ltr" id="installConfirmVersion"></div>
+        <div class="install-confirm-date" id="installConfirmDate"></div>
       </div>
-      <div class="field" id="installLoaderVersionField" hidden>
-        <label id="installLoaderVersionLabel"><i class="fa-solid fa-bolt"></i> <span data-i18n="install.loaderVersion">Loader version</span></label>
-        <div class="select-wrap"><select id="installLoaderVersionSelect"></select></div>
-      </div>
+      <p class="muted" style="margin:0" data-i18n="install.confirmMsg">Are you sure you want to install this version?</p>
       <div class="modal-actions">
-        <button id="installCancelBtn" class="ghost-btn" data-i18n="common.cancel">Cancel</button>
-        <button id="installConfirmBtn" class="btn"><i class="fa-solid fa-download"></i> <span data-i18n="common.install">Install</span></button>
+        <button id="installCancelBtn" class="ghost-btn" data-i18n="common.no">No</button>
+        <button id="installConfirmBtn" class="btn"><i class="fa-solid fa-download"></i> <span data-i18n="common.ok">OK</span></button>
       </div>
     </div>
   </div>

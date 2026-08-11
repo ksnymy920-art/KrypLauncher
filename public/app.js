@@ -18,7 +18,10 @@ const state = {
   skins: { items: [], page: 1, query: '', loading: false, favorites: [], favOnly: false },
   data: { instance: '', screenshots: [], backups: [] },
   servers: { instance: '', items: [], loaded: false },
-  controls: { auto: false, target: '', active: '', profiles: [], running: [] }
+  controls: { auto: false, target: '', active: '', profiles: [], running: [] },
+  versionLoader: 'vanilla',
+  versionBranch: 'release',
+  loaderSupported: {}
 }
 
 const $ = (id) => document.getElementById(id)
@@ -253,124 +256,27 @@ function updateHeroSub(key) {
   sub.textContent = t('home.readySub', { version: inst.versionId, loader: inst.loader ? ' (' + loaderName(inst.loader) + ')' : '' })
 }
 
-async function loadFabricLoaders(mc) {
-  const sel = $('installLoaderVersionSelect')
-  $('installLoaderVersionLabel').innerHTML = '<i class="fa-solid fa-bolt"></i> ' + t('install.fabricVersion')
-  try {
-    const loaders = await api('/api/fabric/loaders/' + encodeURIComponent(mc))
-    state.fabricLoaders = loaders
-    if (!loaders.length) throw new Error(t('install.fabricNotCompat'))
-    sel.innerHTML = ''
-    for (const l of loaders.slice(0, 12)) {
-      sel.appendChild(new Option((l.stable ? '⭐ ' : '') + l.version, l.version))
-    }
-    $('installLoaderVersionField').hidden = false
-  } catch (e) {
-    state.fabricLoaders = []
-    $('installLoaderVersionField').hidden = true
-    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
-  }
-}
-
-async function loadForgeVersions(mc) {
-  const sel = $('installLoaderVersionSelect')
-  $('installLoaderVersionLabel').innerHTML = '<i class="fa-solid fa-fire-flame-curved"></i> ' + t('install.forgeVersion')
-  try {
-    const info = await api('/api/forge/versions/' + encodeURIComponent(mc))
-    state.forgeVersions = info
-    const opts = []
-    if (info.recommended) opts.push('⭐ ' + t('install.recommended', { v: info.recommended }))
-    if (info.latest && info.latest !== info.recommended) opts.push(t('install.latest', { v: info.latest }))
-    if (!opts.length) throw new Error(t('install.forgeNotCompat'))
-    sel.innerHTML = ''
-    for (const o of opts) {
-      const parts = o.split(': ')
-      const ver = parts.length > 1 ? parts[1] : o
-      sel.appendChild(new Option(o, ver))
-    }
-    $('installLoaderVersionField').hidden = false
-  } catch (e) {
-    state.forgeVersions = { recommended: null, latest: null }
-    $('installLoaderVersionField').hidden = true
-    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
-  }
-}
-
 function openInstallModal(versionId) {
   state.installVersionId = versionId
-  $('installModalTitle').innerHTML = '<i class="fa-solid fa-boxes-stacked"></i> ' + t('install.title', { version: '<span class="ltr">' + versionId + '</span>' })
+  const v = (state.versions || []).find((x) => x.id === versionId) || {}
+  const loader = state.versionLoader === 'vanilla' ? '' : state.versionLoader
+  state.installLoader = loader
+  $('installConfirmVersion').textContent = versionId
+  $('installConfirmDate').textContent = (v.releaseTime || '').slice(0, 10) || '—'
+  const lr = $('installConfirmLoader')
+  lr.innerHTML = loaderIcon(loader || 'vanilla') + '<span>' + t('loader.' + (loader || 'vanilla')) + '</span>'
   $('installModal').hidden = false
-  installSetLoader('')
-}
-
-async function loadNeoForgeVersions(mc) {
-  const sel = $('installLoaderVersionSelect')
-  $('installLoaderVersionLabel').innerHTML = '<i class="fa-solid fa-fire"></i> ' + t('install.neoforgeVersion')
-  try {
-    const info = await api('/api/neoforge/versions/' + encodeURIComponent(mc))
-    const opts = []
-    if (info.recommended) opts.push('⭐ ' + t('install.recommended', { v: info.recommended }))
-    if (info.latest && info.latest !== info.recommended) opts.push(t('install.latest', { v: info.latest }))
-    if (!opts.length) throw new Error(t('install.neoforgeNotCompat'))
-    sel.innerHTML = ''
-    for (const o of opts) {
-      const parts = o.split(': ')
-      const ver = parts.length > 1 ? parts[1] : o
-      sel.appendChild(new Option(o, ver))
-    }
-    $('installLoaderVersionField').hidden = false
-  } catch (e) {
-    $('installLoaderVersionField').hidden = true
-    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
-  }
-}
-
-async function loadQuiltLoaders(mc) {
-  const sel = $('installLoaderVersionSelect')
-  $('installLoaderVersionLabel').innerHTML = '<i class="fa-solid fa-quilt"></i> ' + t('install.quiltVersion')
-  try {
-    const loaders = await api('/api/quilt/loaders/' + encodeURIComponent(mc))
-    if (!loaders.length) throw new Error(t('install.quiltNotCompat'))
-    sel.innerHTML = ''
-    for (const l of loaders.slice(0, 12)) {
-      sel.appendChild(new Option((l.stable ? '⭐ ' : '') + l.version, l.version))
-    }
-    $('installLoaderVersionField').hidden = false
-  } catch (e) {
-    $('installLoaderVersionField').hidden = true
-    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
-  }
-}
-
-function installSetLoader(name) {
-  state.installLoader = name
-  document.querySelectorAll('#installLoaderSeg button').forEach((b) => b.classList.toggle('active', b.dataset.loader === name))
-  if (name === 'fabric' || name === 'forge' || name === 'neoforge' || name === 'quilt') {
-    if (state.installVersionId) {
-      if (name === 'fabric') loadFabricLoaders(state.installVersionId)
-      else if (name === 'forge') loadForgeVersions(state.installVersionId)
-      else if (name === 'neoforge') loadNeoForgeVersions(state.installVersionId)
-      else loadQuiltLoaders(state.installVersionId)
-    }
-  } else {
-    $('installLoaderVersionField').hidden = true
-  }
 }
 
 async function confirmInstall() {
   const versionId = state.installVersionId
   if (!versionId) return
   const loader = state.installLoader || ''
-  let loaderVersion = ''
-  if (loader === 'fabric' || loader === 'forge' || loader === 'neoforge' || loader === 'quilt') {
-    loaderVersion = $('installLoaderVersionSelect').value
-    if (!loaderVersion || loaderVersion === 'undefined' || loaderVersion === 'null') return toast(t('mods.chooseLoaderVersion'), 'error')
-  }
   const btn = $('installConfirmBtn')
   btn.disabled = true
   btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ' + t('home.busy')
   try {
-    const res = await api('/api/install', { method: 'POST', body: JSON.stringify({ versionId, loader, loaderVersion }) })
+    const res = await api('/api/install', { method: 'POST', body: JSON.stringify({ versionId, loader, loaderVersion: '' }) })
     state.activeJobId = res.jobId
     $('installModal').hidden = true
     toast(t('install.installing', { version: versionId, loader: loader ? ' (' + loaderName(loader) + ')' : '' }))
@@ -378,7 +284,7 @@ async function confirmInstall() {
     toast(e.message, 'error')
   } finally {
     btn.disabled = false
-    btn.innerHTML = '<i class="fa-solid fa-download"></i> ' + t('common.install')
+    btn.innerHTML = '<i class="fa-solid fa-download"></i> ' + t('common.ok')
   }
 }
 
@@ -1165,52 +1071,150 @@ function escapeHtml(s) {
   return d.innerHTML
 }
 
-function renderVersionsTab() {
-  const list = $('versionList')
-  const cmpVer = (x, y) => {
-    const nx = x.split('-')[0].split('.').map(Number)
-    const ny = y.split('-')[0].split('.').map(Number)
-    for (let i = 0; i < 4; i++) {
-      const dx = nx[i] || 0
-      const dy = ny[i] || 0
-      if (dx !== dy) return dy - dx
-    }
-    return y.localeCompare(x)
-  }
-  const releases = state.versions.filter((v) => v.type === 'release').sort((a, b) => cmpVer(a.id, b.id))
-  const snapshots = state.versions.filter((v) => v.type === 'snapshot').sort((a, b) => cmpVer(a.id, b.id))
+function cmpVerParts(id) {
+  return String(id).split('-')[0].split('.').map((p) => {
+    const n = Number(p)
+    return Number.isFinite(n) ? n : NaN
+  })
+}
 
-  list.innerHTML = ''
-  const groups = [
-    [t('versions.stable'), releases],
-    [t('versions.snapshot'), snapshots]
-  ]
-  for (const [label, arr] of groups) {
-    const h = document.createElement('div')
-    h.className = 'muted'
-    h.style.marginTop = '14px'
-    h.style.fontWeight = '700'
-    h.textContent = label
-    list.appendChild(h)
-    for (const v of arr) {
-      const inst = isInstalledAny(v.id)
-      const div = document.createElement('div')
-      div.className = 'vrow'
-      div.dataset.vid = v.id
-      div.innerHTML = `
-        <div class="v-info">
-          <div class="v-name">${v.id} <span class="tag ${v.type}">${v.type}</span> ${inst ? '<span class="tag installed">' + t('versions.installedTag') + '</span>' : ''}</div>
-          <div class="v-sub"><span>${(v.releaseTime || '').slice(0, 10)}</span></div>
-        </div>
-        <div class="row">
-          <button class="btn" data-install="${v.id}">${inst ? '✓ ' + t('versions.installedTag') : t('common.install')}</button>
-        </div>`
-      list.appendChild(div)
+function cmpVersionsDesc(a, b) {
+  const ka = cmpVerParts(a)
+  const kb = cmpVerParts(b)
+  for (let i = 0; i < Math.max(ka.length, kb.length); i++) {
+    const da = ka[i]
+    const db = kb[i]
+    if (da === undefined || Number.isNaN(da)) {
+      if (db === undefined || Number.isNaN(db)) break
+      return -1
     }
+    if (db === undefined || Number.isNaN(db)) return 1
+    if (da !== db) return db - da
+  }
+  return String(b).localeCompare(String(a), undefined, { numeric: true })
+}
+
+function loaderIcon(id) {
+  const file = id === 'forge' || id === 'neoforge' ? id + '_sq' : id
+  return '<img class="loader-icon" src="logos/' + file + '.png" alt="">'
+}
+
+function renderVersionHeader() {
+  const lang = getLang()
+  const bar = $('versionLoaderBar')
+  if (!bar) return
+  const loaders = [
+    ['vanilla', 'loader.vanilla'],
+    ['fabric', 'loader.fabric'],
+    ['forge', 'loader.forge'],
+    ['neoforge', 'loader.neoforge'],
+    ['quilt', 'loader.quilt']
+  ]
+  if (bar.dataset.built !== lang) {
+    bar.innerHTML = ''
+    for (const [id, key] of loaders) {
+      const b = document.createElement('button')
+      b.className = 'loader-chip' + (state.versionLoader === id ? ' active' : '')
+      b.dataset.loader = id
+      b.innerHTML = loaderIcon(id) + '<span>' + t(key) + '</span>'
+      b.addEventListener('click', () => {
+        state.versionLoader = id
+        bar.querySelectorAll('.loader-chip').forEach((x) => x.classList.toggle('active', x.dataset.loader === id))
+        renderVersionHeader()
+        renderVersionGrid()
+      })
+      bar.appendChild(b)
+    }
+    bar.dataset.built = lang
+  } else {
+    bar.querySelectorAll('.loader-chip').forEach((x) => x.classList.toggle('active', x.dataset.loader === state.versionLoader))
+  }
+  const seg = $('versionBranchSeg')
+  if (!seg) return
+  seg.style.display = ''
+  const noSnap = state.versionLoader === 'forge' || state.versionLoader === 'neoforge'
+  if (noSnap) state.versionBranch = 'release'
+  const branchKeys = noSnap ? [['release', 'versions.stable']] : [['release', 'versions.stable'], ['snapshot', 'versions.snapshot']]
+  if (seg.dataset.built !== lang + state.versionLoader) {
+    seg.innerHTML = ''
+    for (const [bid, key] of branchKeys) {
+      const b = document.createElement('button')
+      b.className = state.versionBranch === bid ? 'active' : ''
+      b.dataset.branch = bid
+      b.textContent = t(key)
+      b.addEventListener('click', () => {
+        state.versionBranch = bid
+        seg.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x.dataset.branch === bid))
+        renderVersionGrid()
+      })
+      seg.appendChild(b)
+    }
+    seg.dataset.built = lang + state.versionLoader
+  } else {
+    seg.querySelectorAll('button').forEach((x) => x.classList.toggle('active', x.dataset.branch === state.versionBranch))
+  }
+}
+
+async function renderVersionGrid() {
+  const list = $('versionList')
+  if (!list) return
+  const loader = state.versionLoader
+  let supportSet = null
+  if (loader !== 'vanilla') {
+    if (state.loaderSupported[loader] === undefined) {
+      try {
+        state.loaderSupported[loader] = await api('/api/' + loader + '/gameversions')
+      } catch (e) {
+        state.loaderSupported[loader] = []
+      }
+    }
+    supportSet = new Set((state.loaderSupported[loader] || []).map((s) => (typeof s === 'string' ? s : s.version)))
+  }
+  const isRelease = state.versionBranch === 'release'
+  let versions = state.versions.filter((v) => {
+    if (v.type !== 'release' && v.type !== 'snapshot') return false
+    return isRelease ? v.type === 'release' : v.type === 'snapshot'
+  })
+  versions.sort((a, b) => cmpVersionsDesc(a.id, b.id))
+  const note = $('versionNote')
+  if (loader !== 'vanilla' && supportSet) {
+    const supported = versions.filter((v) => supportSet.has(v.id))
+    if (note) {
+      note.textContent = t('versions.supportedOnly', { loader: t('loader.' + loader), n: supported.length, total: versions.length })
+      note.style.display = ''
+    }
+    versions = supported
+  } else if (note) {
+    note.style.display = 'none'
+  }
+  list.innerHTML = ''
+  if (!versions.length) {
+    const p = document.createElement('p')
+    p.className = 'vcard-empty'
+    p.textContent = t('versions.none')
+    list.appendChild(p)
+    return
+  }
+  for (const v of versions) {
+    const inst = isInstalledAny(v.id)
+    const card = document.createElement('div')
+    card.className = 'vcard'
+    card.dataset.vid = v.id
+    card.innerHTML = `
+      <div class="vcard-badge ${v.type}">${v.type === 'release' ? t('versions.stable') : t('versions.snapshot')}</div>
+      <div class="vcard-name">${escapeHtml(v.id)}</div>
+      <div class="vcard-date">${(v.releaseTime || '').slice(0, 10)}</div>
+      <button class="vcard-btn" data-install="${v.id}">${inst ? '✓ ' + t('versions.installedTag') : t('common.install')}</button>`
+    list.appendChild(card)
   }
   list.querySelectorAll('[data-install]').forEach((b) => {
     b.addEventListener('click', () => openInstallModal(b.dataset.install))
   })
+}
+
+function renderVersionsTab() {
+  renderVersionHeader()
+  renderVersionGrid()
 }
 
 function renderSettings() {
@@ -2137,7 +2141,6 @@ function bind() {
   document.querySelectorAll('.nav-btn').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)))
 
   $('instanceSelect').addEventListener('change', onInstanceChange)
-  document.querySelectorAll('#installLoaderSeg button').forEach((b) => b.addEventListener('click', () => installSetLoader(b.dataset.loader)))
   $('installCancelBtn').addEventListener('click', () => ($('installModal').hidden = true))
   $('installModal').addEventListener('click', (e) => {
     if (e.target.id === 'installModal') $('installModal').hidden = true

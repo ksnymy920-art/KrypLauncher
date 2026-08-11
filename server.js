@@ -1269,6 +1269,38 @@ app.get('/api/quilt/loaders/:mc', async (req, res) => {
   }
 })
 
+app.get('/api/fabric/gameversions', async (req, res) => {
+  try {
+    res.json(await fabric.gameVersions())
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/quilt/gameversions', async (req, res) => {
+  try {
+    res.json(await quilt.gameVersions())
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/forge/gameversions', async (req, res) => {
+  try {
+    res.json(await forge.gameVersions())
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
+app.get('/api/neoforge/gameversions', async (req, res) => {
+  try {
+    res.json(await neoforge.gameVersions())
+  } catch (e) {
+    res.status(500).json({ error: e.message })
+  }
+})
+
 app.get('/api/mods/search', async (req, res) => {
   try {
     const r = await mods.search({
