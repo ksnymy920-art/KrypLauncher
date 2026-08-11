@@ -1,13 +1,13 @@
 {
-  "name": "omnilauncher",
-  "version": "1.0.3",
+  "name": "kryplauncher",
+  "version": "1.0.1",
   "description": "Minecraft launcher with multi Java versions, Fabric/Forge support, offline & Microsoft accounts",
-  "author": "OmniLauncher",
+  "author": "KrypLauncher",
   "main": "electron-main.js",
   "bin": "server.js",
   "scripts": {
     "start": "electron .",
-    "build": "pkg server.js --targets node18-win-x64 --output OmniLauncher-cli.exe",
+    "build": "pkg server.js --targets node18-win-x64 --output KrypLauncher-cli.exe",
     "build:app": "electron-builder --win portable",
     "icon": "node make-icon.js"
   },
@@ -21,13 +21,13 @@
     ]
   },
   "build": {
-    "appId": "com.omnilauncher.app",
-    "productName": "OmniLauncher",
+    "appId": "com.kryplauncher.app",
+    "productName": "KrypLauncher",
     "publish": [
       {
         "provider": "github",
         "owner": "ksnymy920-art",
-        "repo": "OmniLauncher"
+        "repo": "KrypLauncher"
       }
     ],
     "files": [
@@ -49,7 +49,7 @@
       "signAndEditExecutable": false
     },
     "portable": {
-      "artifactName": "OmniLauncher.exe"
+      "artifactName": "KrypLauncher.exe"
     }
   },
   "dependencies": {

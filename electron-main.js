@@ -11,7 +11,7 @@ if (!gotLock) {
 } else {
   let win = null
 
-  app.setAppUserModelId('com.omnilauncher.app')
+  app.setAppUserModelId('com.kryplauncher.app')
 
   function findFreePort() {
     return new Promise((resolve, reject) => {
@@ -38,7 +38,7 @@ if (!gotLock) {
       minHeight: 620,
       autoHideMenuBar: true,
       backgroundColor: '#0b0e14',
-      title: 'OmniLauncher',
+      title: 'KrypLauncher',
       icon: path.join(__dirname, 'icon.png'),
       webPreferences: {
         contextIsolation: true,

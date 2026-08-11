@@ -18,7 +18,9 @@ const modfix = require('./lib/modfix')
 const skins = require('./lib/skins')
 const logs = require('./lib/logs')
 const backups = require('./lib/backups')
-
+const serverlist = require('./lib/serverlist')
+const downloadLib = require('./lib/download')
+const controls = require('./lib/controls')
 function resolvePort() {
   const argIdx = process.argv.indexOf('--port')
   if (argIdx !== -1) {
@@ -45,8 +47,52 @@ let logOffset = 0
 const runningGames = new Map()
 const gameMissing = new Map()
 const stopRequested = new Set()
+const serverTrackers = new Map()
+
+function readLastServer(gameDir) {
+  try {
+    return fs.readFileSync(path.join(gameDir, 'lastserver.txt'), 'utf8').trim()
+  } catch (e) {
+    return ''
+  }
+}
+
+function startServerTracker(key, gameDir, baseline) {
+  stopServerTracker(key)
+  const bp = serverlist.parseAddress(baseline || '')
+  const rec = { key, gameDir, last: baseline || '', lastHost: bp ? bp.host : '', iv: null }
+  serverTrackers.set(key, rec)
+  rec.iv = setInterval(() => {
+    try {
+      const v = readLastServer(gameDir)
+      if (!v || v === rec.last) return
+      rec.last = v
+      const p = serverlist.parseAddress(v)
+      if (!p || p.host === rec.lastHost) return
+      rec.lastHost = p.host
+      const inst = cfg.getInstance(key)
+      if (inst) {
+        serverlist.addServerToDat(gameDir, { name: p.host, ip: v })
+      }
+      serverlist.trackPlay(v, { name: p.host })
+      logLine(`[KrypLauncher] 📡 Server saved automatically to the server list: ${v}`)
+    } catch (e) {}
+  }, 4000)
+}
+
+function stopServerTracker(key) {
+  const rec = serverTrackers.get(key)
+  if (rec && rec.iv) clearInterval(rec.iv)
+  serverTrackers.delete(key)
+}
+
+function launchHostWithPort(host, port) {
+  if (port && port !== 25565) return `${host}:${port}`
+  return host
+}
 
 function createJob(type, label) {
+  downloadLib.resetCancel()
   const id = randomUUID()
   jobs[id] = { id, type, label, current: 0, total: 0, done: false, error: null, data: null, createdAt: Date.now() }
   const keys = Object.keys(jobs)
@@ -97,8 +143,28 @@ function scanForMissingMods(key, line) {
   if (changed) {
     const miss = [...rec.missing].join(', ')
     const conf = [...rec.conflicts].join(', ')
-    logLine(`[OmniLauncher] ⚠️ ${miss ? 'مطلوب مود ناقص: ' + miss : ''}${conf ? (miss ? ' — ' : '') + 'تعارض مودات: ' + conf : ''}`)
+    logLine(`[KrypLauncher] ⚠️ ${miss ? 'Missing mods required: ' + miss : ''}${conf ? (miss ? ' — ' : '') + 'Mod conflicts: ' + conf : ''}`)
   }
+}
+
+function scanForServerJoin(key, line) {
+  const m = /Connecting to\s+([^\s,]+)(?:\s*,\s*(\d{1,5}))?/.exec(line)
+  if (!m) return
+  const host = m[1].trim()
+  const port = m[2] ? parseInt(m[2], 10) : null
+  if (!host || host === 'localhost' || host === '127.0.0.1') return
+  const p = serverlist.parseAddress(port && port !== 25565 ? host + ':' + port : host)
+  if (!p) return
+  const rec = serverTrackers.get(key)
+  if (rec && rec.lastHost === p.host) return
+  if (rec) rec.lastHost = p.host
+  const inst = cfg.getInstance(key)
+  if (inst) {
+    const gameDir = path.join(cfg.paths().game, key)
+    serverlist.addServerToDat(gameDir, { name: p.host, ip: host + (p.port !== 25565 ? ':' + p.port : '') })
+  }
+  serverlist.trackPlay(host + (p.port !== 25565 ? ':' + p.port : ''), { name: p.host })
+  logLine(`[KrypLauncher] 📡 Server saved automatically to the server list: ${host}${p.port !== 25565 ? ':' + p.port : ''}`)
 }
 
 function runMissingFix(key) {
@@ -118,8 +184,8 @@ function runMissingFix(key) {
     })
     const ok = results.filter((x) => x.status === 'installed').length
     const fail = results.filter((x) => x.status === 'failed')
-    logLine(ok ? `[OmniLauncher] ✅ تم تحميل ${ok} مود ناقص تلقائياً` : '[OmniLauncher] لم يتم العثور على المودات الناقصة')
-    if (fail.length) logLine(`[OmniLauncher] فشل تحميل: ${fail.map((x) => x.id).join(', ')}`)
+    logLine(ok ? `[KrypLauncher] ✅ Downloaded ${ok} missing mods automatically` : '[KrypLauncher] Missing mods not found')
+    if (fail.length) logLine(`[KrypLauncher] Failed to download: ${fail.map((x) => x.id).join(', ')}`)
     return results
   })
   return job
@@ -132,6 +198,7 @@ function pushLog(key, chunk) {
     const clean = stripAnsi(line)
     gameLogs.push({ n: logOffset++, t: new Date().toISOString(), line: clean })
     if (key) scanForMissingMods(key, clean)
+    if (key) scanForServerJoin(key, clean)
   }
   if (gameLogs.length > 4000) gameLogs.splice(0, gameLogs.length - 4000)
 }
@@ -348,7 +415,7 @@ app.post('/api/instances/delete', (req, res) => {
 })
 
 app.post('/api/play', (req, res) => {
-  const { versionId, loader, loaderVersion, accountId, memory, jvmArgs, width, height } = req.body
+  const { versionId, loader, loaderVersion, accountId, memory, jvmArgs, width, height, server, serverPort } = req.body
   if (!versionId) return res.status(400).json({ error: 'versionId مطلوب' })
   if (!validLoaderVersion(loader, loaderVersion)) return res.status(400).json({ error: 'اختر إصدار اللودر' })
   const key = instanceKey(versionId, loader)
@@ -379,8 +446,103 @@ app.post('/api/play', (req, res) => {
 
     const gameDir = path.join(cfg.paths().game, key)
     fs.mkdirSync(gameDir, { recursive: true })
+    if (prep.forgeJson && prep.forgeJson.fmlLegacy) {
+      try {
+        const forgeJar = prep.forgeArtifacts.find((a) => a.path.includes('minecraftforge/forge'))
+        await forge.ensureFmlLibs(gameDir, forgeJar ? path.join(cfg.paths().libraries, forgeJar.path) : null, (label) => logLine('>> ' + label))
+      } catch (e) {
+        logLine('>> FML libs error: ' + e.message)
+        throw e
+      }
+    }
+    const cc = cfg.load().controls || {}
+    if (cc.auto && cc.active && (cc.target === '' || cc.target === key)) {
+      const prof = (cc.profiles || []).find((p) => p.id === cc.active)
+      if (prof) {
+        try {
+          if (controls.applyProfile(gameDir, cfg.paths().data, prof.id)) {
+            logLine('>> Options applied: ' + prof.name)
+          }
+        } catch (e) {
+          logLine('Error applying options.txt: ' + e.message)
+        }
+      }
+    }
     const assetsDir = cfg.paths().assets
     const assetIndex = prep.files.index ? prep.files.index.id : null
+    if (prep.forgeJson && prep.forgeJson.fmlLegacy) {
+      try {
+        const optFile = path.join(gameDir, 'options.txt')
+        if (fs.existsSync(optFile)) {
+          const lines = fs.readFileSync(optFile, 'utf8').split(/\r?\n/)
+          let changed = false
+          for (let i = 0; i < lines.length; i++) {
+            const m = /^lang:(.*)$/.exec(lines[i])
+            if (m) {
+              const code = m[1].trim()
+              const parts = code.split('_')
+              const fixed = parts.length === 2 ? parts[0].toLowerCase() + '_' + parts[1].toUpperCase() : code
+              if (fixed !== code) {
+                lines[i] = 'lang:' + fixed
+                changed = true
+              }
+            }
+          }
+          if (changed) fs.writeFileSync(optFile, lines.join('\n'))
+        }
+        const srvFile = path.join(gameDir, 'servers.dat')
+        if (!fs.existsSync(srvFile)) {
+          const name = Buffer.from('servers.dat', 'utf8')
+          const body = Buffer.concat([
+            Buffer.from([0x0a, (name.length >> 8) & 0xff, name.length & 0xff]),
+            name,
+            Buffer.from([0x00])
+          ])
+          fs.writeFileSync(srvFile, require('zlib').gzipSync(body))
+        }
+      } catch (e) {
+        logLine('>> legacy prep error: ' + e.message)
+      }
+    }
+    let gameAssets = assetsDir
+    if (prep.files.index && prep.files.index.file && fs.existsSync(prep.files.index.file)) {
+      try {
+        const idx = JSON.parse(fs.readFileSync(prep.files.index.file, 'utf8'))
+        if (idx.virtual || /^pre-1\.6$/.test(prep.files.index.id)) gameAssets = path.join(assetsDir, 'virtual', prep.files.index.id)
+      } catch (e) {}
+    }
+
+    if (prep.forgeJson && prep.forgeJson.fmlLegacy && gameAssets && fs.existsSync(gameAssets)) {
+      try {
+        const marker = path.join(gameDir, '.omnilauncher-assets')
+        const needCopy = !fs.existsSync(marker) || fs.readFileSync(marker, 'utf8').trim() !== String(gameAssets)
+        if (needCopy) {
+          const dest = path.join(gameDir, 'resources')
+          fs.mkdirSync(dest, { recursive: true })
+          const skip = new Set(['.complete', 'pack.mcmeta', 'READ_ME_I_AM_VERY_IMPORTANT'])
+          for (const entry of fs.readdirSync(gameAssets, { withFileTypes: true })) {
+            if (skip.has(entry.name) || entry.name.startsWith('.')) continue
+            fs.cpSync(path.join(gameAssets, entry.name), path.join(dest, entry.name), { recursive: true, force: true })
+          }
+          fs.writeFileSync(marker, String(gameAssets))
+          logLine('>> نسخت أصول اللعبة إلى مجلد resources')
+        }
+      } catch (e) {
+        logLine('>> resources copy error: ' + e.message)
+      }
+    }
+
+    let launchServer = null
+    let launchPort = null
+    if (server) {
+      const p = serverlist.parseAddress(server)
+      const host = p ? p.host : server
+      const port = serverPort || (p ? p.port : 25565)
+      serverlist.addServerToDat(gameDir, { name: host, ip: server })
+      serverlist.trackPlay(server, { name: host })
+      launchServer = host
+      launchPort = port
+    }
 
     if (account.skin && account.skin.local) {
       const skinFile = skins.skinPngPath(account.id)
@@ -389,22 +551,46 @@ app.post('/api/play', (req, res) => {
         try {
           skins.installOfflineSkin(gameDir, fs.readFileSync(skinFile), mcVersion)
           skins.removeAutoCustomSkinLoader(gameDir)
-          logLine('>> تم تطبيق السكن المحلي: ' + (account.skin.name || ''))
+          logLine('>> Local skin applied: ' + (account.skin.name || ''))
         } catch (e) {
-          logLine('خطأ تطبيق السكن المحلي: ' + e.message)
+          logLine('Error applying local skin: ' + e.message)
         }
       }
     }
 
     let args
     if (prep.forgeJson || prep.neoforgeJson) {
+      const fmlCfgDir = path.join(gameDir, 'config')
+      fs.mkdirSync(fmlCfgDir, { recursive: true })
+      const fmlCfg = path.join(fmlCfgDir, 'fml.toml')
+      const fmlContent = fs.existsSync(fmlCfg) ? fs.readFileSync(fmlCfg, 'utf8') : ''
+      if (!/^\s*earlyWindowControl\s*=\s*false/m.test(fmlContent)) {
+        const cleaned = fmlContent.replace(/^\s*earlyWindowControl\s*=.*$/m, '')
+        fs.writeFileSync(fmlCfg, (cleaned.trim() ? cleaned.trim() + '\n' : '') + 'earlyWindowControl = false\n')
+      }
       const loaderJson = prep.forgeJson || prep.neoforgeJson
       const loaderArtifacts = prep.forgeJson ? prep.forgeArtifacts : prep.neoforgeArtifacts
-      const cp = launchLib.buildClasspath([
-        ...prep.files.artifacts.map((a) => path.join(cfg.paths().libraries, a.path)),
-        mojang.clientJarFile(versionId),
-        ...loaderArtifacts.map((a) => path.join(cfg.paths().libraries, a.path))
-      ])
+      const cpParts = []
+      const seen = new Set()
+      const pushCp = (p) => {
+        const k = String(p).replace(/\\/g, '/').toLowerCase()
+        if (seen.has(k)) return
+        seen.add(k)
+        cpParts.push(p)
+      }
+      for (const a of prep.files.artifacts) pushCp(path.join(cfg.paths().libraries, a.path))
+      for (const a of loaderArtifacts) pushCp(path.join(cfg.paths().libraries, a.path))
+      if (forge.needsClientJar(loaderJson)) {
+        const cj = forge.findClientJar(versionId, instance.loaderVersion)
+        if (!cj) throw new Error('ملفات فورج المولدة ناقصة (client jar غير موجود) — أعد تثبيت فورج')
+        pushCp(cj)
+      } else if (loaderJson.jar && loaderJson.jar !== versionId) {
+        const jf = mojang.clientJarFile(loaderJson.jar)
+        pushCp(fs.existsSync(jf) ? jf : mojang.clientJarFile(versionId))
+      } else {
+        pushCp(mojang.clientJarFile(versionId))
+      }
+      const cp = launchLib.buildClasspath(cpParts)
       const mainClass = loaderJson.mainClass || 'net.minecraft.launchwrapper.Launch'
       args = launchLib.buildForgeArgs({
         forgeJson: loaderJson,
@@ -415,11 +601,14 @@ app.post('/api/play', (req, res) => {
         gameDir,
         assetsDir,
         assetIndex,
+        gameAssets,
         account,
         memory: mem,
         jvmArgs: jvm,
         width: w,
-        height: h
+        height: h,
+        server: launchServer,
+        serverPort: launchPort
       })
     } else {
       const mainClass = prep.quiltProfile ? quilt.mainClass(prep.quiltProfile) : prep.fabricProfile ? fabric.mainClass(prep.fabricProfile) : 'net.minecraft.client.main.Main'
@@ -436,24 +625,28 @@ app.post('/api/play', (req, res) => {
         assetIndex,
         account,
         width: w,
-        height: h
+        height: h,
+        server: launchServer,
+        serverPort: launchPort
       })
     }
 
-    logLine(`>> تشغيل: ${prep.javaBin}`)
+    logLine(`>> Launching: ${prep.javaBin}`)
+    logLine('>> args: ' + args.join(' | '))
     logLine(`>> instance: ${key}`)
     gameMissing.delete(key)
 
     const child = launchLib.launch({ javaBin: prep.javaBin, args, cwd: gameDir })
     child.stdout.on('data', (d) => pushLog(key, d))
     child.stderr.on('data', (d) => pushLog(key, d))
-    child.on('error', (err) => logLine('خطأ تشغيل: ' + err.message))
+    child.on('error', (err) => logLine('Launch error: ' + err.message))
     child.on('exit', (code) => {
       const rec = gameMissing.get(key)
+      stopServerTracker(key)
       runningGames.delete(key)
       const stopped = stopRequested.has(key)
       stopRequested.delete(key)
-      logLine(stopped ? `اللعبة أُوقفت` : `اللعبة انتهت برمز الخروج ${code}`)
+      logLine(stopped ? `Game stopped` : `Game exited with code ${code}`)
       const inst = cfg.getInstance(key)
       if (inst) cfg.setInstance(key, { ...inst, status: stopped ? 'stopped' : code === 0 ? 'stopped' : 'crashed' })
       if (!stopped && code !== 0 && rec && rec.missing.size && !rec.autoStarted) {
@@ -464,6 +657,11 @@ app.post('/api/play', (req, res) => {
 
     runningGames.set(key, { key, versionId: instance.versionId, loader: instance.loader, pid: child.pid, startedAt: new Date() })
     cfg.setInstance(key, { ...cfg.getInstance(key), ...instance, status: 'running' })
+    if (launchServer) {
+      startServerTracker(key, gameDir, `${launchHostWithPort(launchServer, launchPort)}`)
+    } else {
+      startServerTracker(key, gameDir, readLastServer(gameDir))
+    }
     return { pid: child.pid, instanceId: key }
   })
 
@@ -499,6 +697,401 @@ app.get('/api/game/logs', (req, res) => {
   res.json({ logs: items, running: runningGames.size > 0 })
 })
 
+app.get('/api/servers', (req, res) => {
+  const { instance } = req.query
+  const inst = cfg.getInstance(instance)
+  if (!instance || !inst) return res.json({ servers: [], rev: serverlist.getRev() })
+  const gameDir = path.join(cfg.paths().game, instance)
+  res.json({ servers: serverlist.listServers(gameDir), rev: serverlist.getRev() })
+})
+
+app.post('/api/servers/add', (req, res) => {
+  const { instance, name, ip, port } = req.body || {}
+  const inst = cfg.getInstance(instance)
+  if (!instance || !inst || !ip) return res.status(400).json({ error: 'bad request' })
+  const gameDir = path.join(cfg.paths().game, instance)
+  const p = serverlist.parseAddress(ip)
+  serverlist.addServerToDat(gameDir, { name: name || (p ? p.host : ip), ip, port: port || (p ? p.port : 25565) })
+  res.json({ ok: true })
+})
+
+app.post('/api/servers/track', (req, res) => {
+  const { name, ip } = req.body || {}
+  if (!ip) return res.status(400).json({ error: 'bad request' })
+  serverlist.ensureServer(ip, { name })
+  res.json({ ok: true })
+})
+
+app.post('/api/servers/remove', (req, res) => {
+  const { instance, ip } = req.body || {}
+  const inst = cfg.getInstance(instance)
+  if (!instance || !inst || !ip) return res.status(400).json({ error: 'bad request' })
+  const gameDir = path.join(cfg.paths().game, instance)
+  serverlist.removeFromDat(gameDir, ip)
+  serverlist.removeServer(ip)
+  res.json({ ok: true })
+})
+
+app.post('/api/servers/version', (req, res) => {
+  const { ip, versionId, loader, loaderVersion } = req.body || {}
+  if (!ip) return res.status(400).json({ error: 'bad request' })
+  serverlist.setServerVersion(ip, { versionId, loader, loaderVersion })
+  res.json({ ok: true })
+})
+
+async function resolveIconBase64(host, port, instance) {
+  const iconDir = path.join(cfg.paths().data, 'server-icons')
+  fs.mkdirSync(iconDir, { recursive: true })
+  const cache = path.join(iconDir, `${host}_${port || 25565}.png`)
+  let iconBase64 = null
+  if (instance) {
+    try {
+      const gameDir = path.join(cfg.paths().game, instance)
+      const entry = serverlist.readServersDat(gameDir).find((e) => {
+        const ep = serverlist.parseAddress(e.ip)
+        return ep && ep.host === host
+      })
+      if (entry && entry.icon) iconBase64 = entry.icon
+    } catch (e) {}
+  }
+  if (!iconBase64 && fs.existsSync(cache)) {
+    try {
+      iconBase64 = fs.readFileSync(cache).toString('base64')
+    } catch (e) {}
+  }
+  if (!iconBase64) {
+    try {
+      await downloadLib.download(`https://api.mcsrvstat.us/icon/${host}:${port || 25565}`, cache, { timeout: 10000 })
+      iconBase64 = fs.readFileSync(cache).toString('base64')
+    } catch (e) {}
+  }
+  return iconBase64
+}
+
+app.get('/api/servers/icon', async (req, res) => {
+  const { host, port, instance } = req.query
+  if (!host) return res.status(400).end()
+  const iconBase64 = await resolveIconBase64(host, port, instance)
+  if (!iconBase64) return res.status(404).end()
+  if (instance) {
+    try {
+      serverlist.setIcon(host + ':' + (port || 25565), iconBase64)
+    } catch (e) {}
+  }
+  res.set('content-type', 'image/png')
+  res.end(Buffer.from(iconBase64, 'base64'))
+})
+
+app.get('/api/icons', async (req, res) => {
+  const { host, port } = req.query
+  if (!host) return res.status(400).end()
+  const iconBase64 = await resolveIconBase64(host, port)
+  if (!iconBase64) return res.status(404).end()
+  res.set('content-type', 'image/png')
+  res.end(Buffer.from(iconBase64, 'base64'))
+})
+
+const POPULAR_SERVERS = [
+  { name: 'PikaNetwork', address: 'play.pika-network.net' },
+  { name: 'Hypixel', address: 'mc.hypixel.net' },
+  { name: 'Wynncraft', address: 'play.wynncraft.com' },
+  { name: 'CubeCraft Games', address: 'play.cubecraft.net' },
+  { name: 'ManaCube', address: 'play.manacube.com' },
+  { name: 'JartexNetwork', address: 'play.jartexnetwork.com' },
+  { name: 'BlocksMC', address: 'play.blocksmc.com' },
+  { name: 'Purple Prison', address: 'purpleprison.net' },
+  { name: 'GrieferGames', address: 'mc.griefergames.net' },
+  { name: 'The Archon', address: 'play.thearchon.net' },
+  { name: 'MCC Island', address: 'mccisland.net' },
+  { name: '2b2t', address: '2b2t.org' },
+  { name: 'Leet', address: 'leet.cc' }
+]
+
+const BROWSE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36'
+
+function fetchJson(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => {
+      ctrl.abort()
+      reject(new Error('timeout'))
+    }, timeoutMs || 15000)
+    fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'KrypLauncher/1.0' } })
+      .then((r) => r.json())
+      .then((j) => {
+        clearTimeout(t)
+        resolve(j)
+      })
+      .catch((e) => {
+        clearTimeout(t)
+        reject(e)
+      })
+  })
+}
+
+function fetchHtml(url, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const ctrl = new AbortController()
+    const t = setTimeout(() => {
+      ctrl.abort()
+      reject(new Error('timeout'))
+    }, timeoutMs || 20000)
+    fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': BROWSE_UA, 'Accept-Language': 'en-US,en;q=0.9' } })
+      .then(async (r) => {
+        if (!r.ok) throw new Error('http ' + r.status)
+        return r.text()
+      })
+      .then((txt) => {
+        clearTimeout(t)
+        resolve(txt)
+      })
+      .catch((e) => {
+        clearTimeout(t)
+        reject(e)
+      })
+  })
+}
+
+function normAddress(host, port) {
+  const p = parseInt(port, 10)
+  return p && p !== 25565 ? `${host}:${p}` : host
+}
+
+function parseMcservList(html) {
+  const out = []
+  const re = /<h2 class="server-name">([^<]+)<\/h2>[\s\S]*?<span class="text-default">([^<]+)<\/span>/g
+  let m
+  while ((m = re.exec(html))) {
+    const name = (m[1] || '').trim()
+    const addr = (m[2] || '').trim().toLowerCase()
+    if (name && addr) out.push({ name, address: addr })
+  }
+  return out
+}
+
+function parseBuzzList(html) {
+  const out = []
+  const re = /<img[^>]*alt="([^"]+?) Minecraft Server"[^>]*>[\s\S]*?<data value="([^"]+)" class="ip-block"[^>]*>[\s\S]*?copyIP\('[^']*',\s*(\d+)/g
+  let m
+  while ((m = re.exec(html))) {
+    const name = (m[1] || '').trim()
+    const host = (m[2] || '').trim().toLowerCase()
+    const port = parseInt(m[3], 10)
+    if (name && host) out.push({ name, address: port && port !== 25565 ? `${host}:${port}` : host })
+  }
+  return out
+}
+
+function parseMclistList(html) {
+  const out = []
+  const re = /<h5 class="card-title"[^>]*>([^<]{2,80})<\/h5>[\s\S]{0,3000}?<input[^>]*value="([a-zA-Z0-9.\-:]{4,120})"/g
+  let m
+  while ((m = re.exec(html))) {
+    const name = (m[1] || '').trim()
+    const addr = (m[2] || '').trim().toLowerCase()
+    if (name && addr) out.push({ name, address: addr })
+  }
+  return out
+}
+
+function parseMslistList(html) {
+  const out = []
+  const re = /<a href="\/server\/\d+">([^<]+)<\/a>[\s\S]{0,1500}?<div class="url">([^<]+)<\/div>/g
+  let m
+  while ((m = re.exec(html))) {
+    const name = (m[1] || '').trim()
+    const addr = (m[2] || '').trim().toLowerCase()
+    if (name && addr) out.push({ name, address: addr })
+  }
+  return out
+}
+
+function parseMmpList(html) {
+  const out = []
+  const re = /<a href="\/server-s\d+" title="([^"]+)">[\s\S]{0,3000}?data-clipboard-text="([a-zA-Z0-9.\-:]+)"/g
+  let m
+  while ((m = re.exec(html))) {
+    const name = (m[1] || '').trim()
+    const addr = (m[2] || '').trim().toLowerCase()
+    if (name && addr) out.push({ name, address: addr })
+  }
+  return out
+}
+
+function parseTopgList(html) {
+  const out = []
+  const re = /<h3 class="topg-server-name">([^<]+)<\/h3>[\s\S]{0,600}?<span class="copy-ip copy-span" data-text="([^"]+)"/g
+  let m
+  while ((m = re.exec(html))) {
+    const name = (m[1] || '').trim()
+    const addr = (m[2] || '').trim().toLowerCase()
+    if (name && addr) out.push({ name, address: addr })
+  }
+  return out
+}
+
+const BROWSE_PAGE_SIZE = 20
+const BROWSE_SOURCES = ['anyserver', 'mjsv', 'mcserv', 'buzz', 'mclist', 'mslist', 'mmp', 'topg']
+
+const browseSleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+let browseState = {
+  pool: [],
+  byHost: new Map(),
+  cursor: {},
+  done: {},
+  allDone: false,
+  busy: false,
+  maxPool: 6000,
+  at: 0
+}
+
+function addBrowseBatch(st, list) {
+  for (const s of list) {
+    if (!s || !s.address) continue
+    const host = s.address.split(':')[0].toLowerCase()
+    if (!st.byHost.has(host)) {
+      st.byHost.set(host, { name: s.name || s.address, address: s.address })
+      st.pool.push(st.byHost.get(host))
+    }
+  }
+  if (st.pool.length >= st.maxPool) st.allDone = true
+}
+
+function allBrowseDone(st) {
+  st.allDone = st.pool.length >= st.maxPool || BROWSE_SOURCES.every((k) => st.done[k])
+}
+
+function startBrowseBatch() {
+  const st = browseState
+  const tasks = []
+  const push = (key, fn) => {
+    if (!st.done[key]) tasks.push({ key, fn })
+  }
+
+  push('anyserver', async () => {
+    const limit = 250
+    const j = await fetchJson(`https://anyserver.pro/api/servers?game=mc_java&limit=${limit}&offset=${st.cursor.anyserver || 0}&sort=most_players`, 12000)
+    const arr = Array.isArray(j.servers) ? j.servers : []
+    st.cursor.anyserver = (st.cursor.anyserver || 0) + arr.length
+    if (arr.length < limit) st.done.anyserver = true
+    return arr.map((s) => ({ name: s.name || s.address, address: normAddress(s.address, s.port) }))
+  })
+
+  push('mjsv', async () => {
+    st.cursor.mjsv = (st.cursor.mjsv || 0) + 1
+    const j = await fetchJson(`https://minecraft-java-servers.com/api/v1/servers?per_page=100&min_players=1&page=${st.cursor.mjsv}`, 12000)
+    const arr = Array.isArray(j.data) ? j.data : []
+    if (arr.length < 100 || st.cursor.mjsv >= 10) st.done.mjsv = true
+    return arr.map((s) => ({ name: s.name || s.host, address: normAddress(s.host, s.port) }))
+  })
+
+  push('mcserv', async () => {
+    st.cursor.mcserv = (st.cursor.mcserv || 0) + 1
+    const arr = parseMcservList(await fetchHtml(`https://mcserv.org/sa/?page=${st.cursor.mcserv}`, 12000))
+    if (arr.length < 10 || st.cursor.mcserv >= 40) st.done.mcserv = true
+    return arr
+  })
+
+  push('buzz', async () => {
+    st.cursor.buzz = (st.cursor.buzz || 0) + 1
+    const arr = parseBuzzList(await fetchHtml(`https://minecraft.buzz/java/${st.cursor.buzz}`, 12000))
+    if (arr.length < 5 || st.cursor.buzz >= 30) st.done.buzz = true
+    return arr
+  })
+
+  push('mclist', async () => {
+    st.cursor.mclist = (st.cursor.mclist || 0) + 1
+    const arr = parseMclistList(await fetchHtml(`https://mclist.io/?page=${st.cursor.mclist}`, 12000))
+    if (arr.length < 5 || st.cursor.mclist >= 30) st.done.mclist = true
+    return arr
+  })
+
+  push('mslist', async () => {
+    st.cursor.mslist = (st.cursor.mslist || 0) + 1
+    const arr = parseMslistList(await fetchHtml(`https://www.minecraftserverlist.net/index/${st.cursor.mslist}`, 12000))
+    if (arr.length < 5 || st.cursor.mslist >= 50) st.done.mslist = true
+    return arr
+  })
+
+  push('mmp', async () => {
+    st.cursor.mmp = (st.cursor.mmp || 0) + 1
+    const arr = parseMmpList(await fetchHtml(`https://minecraft-mp.com/servers/list/${st.cursor.mmp}/`, 12000))
+    if (arr.length < 10 || st.cursor.mmp >= 40) st.done.mmp = true
+    return arr
+  })
+
+  push('topg', async () => {
+    st.cursor.topg = (st.cursor.topg || 0) + 1
+    const arr = parseTopgList(await fetchHtml(`https://topg.org/minecraft-servers/?page=${st.cursor.topg}`, 12000))
+    if (arr.length < 10 || st.cursor.topg >= 40) st.done.topg = true
+    return arr
+  })
+
+  if (!tasks.length) return []
+  return tasks.map((t) =>
+    t.fn()
+      .then((list) => addBrowseBatch(st, list))
+      .catch(() => { st.done[t.key] = true })
+      .then(() => allBrowseDone(st))
+  )
+}
+
+async function ensureBrowsePool(need) {
+  const st = browseState
+  if (Date.now() - st.at > 15 * 60 * 1000) {
+    st.pool = []
+    st.byHost = new Map()
+    st.cursor = {}
+    st.done = {}
+    st.allDone = false
+    st.at = Date.now()
+  }
+  let guard = 0
+  while (st.pool.length < need && !st.allDone && guard < 12) {
+    guard++
+    if (st.busy) {
+      await browseSleep(100)
+      continue
+    }
+    const tasks = startBrowseBatch()
+    if (!tasks.length) break
+    st.busy = true
+    await new Promise((resolve) => {
+      let settled = 0
+      const timer = setInterval(() => {
+        if (st.pool.length >= need) resolve()
+      }, 50)
+      for (const p of tasks) {
+        p.finally(() => {
+          settled++
+          if (settled === tasks.length) {
+            st.busy = false
+            clearInterval(timer)
+            resolve()
+          }
+        })
+      }
+    })
+  }
+}
+
+app.get('/api/servers/browse', async (req, res) => {
+  const { q } = req.query
+  const page = Math.max(1, parseInt(req.query.page || '1', 10) || 1)
+  const st = browseState
+  try {
+    await ensureBrowsePool(page * BROWSE_PAGE_SIZE)
+  } catch (e) {}
+  let list = st.pool
+  if (q) {
+    const s = String(q).toLowerCase()
+    list = list.filter((x) => x.name.toLowerCase().includes(s) || x.address.toLowerCase().includes(s))
+  }
+  const totalPages = Math.max(1, Math.ceil(list.length / BROWSE_PAGE_SIZE))
+  res.json({ servers: list.slice((page - 1) * BROWSE_PAGE_SIZE, page * BROWSE_PAGE_SIZE), page, totalPages, hasNext: !st.allDone })
+})
+
 app.get('/api/game/missing', (req, res) => {
   const items = []
   for (const [key, rec] of gameMissing.entries()) {
@@ -518,7 +1111,7 @@ app.post('/api/logs/upload', async (req, res) => {
     const text = gameLogs.map((l) => l.line).join('\n')
     if (!text.trim()) return res.status(400).json({ error: 'لا يوجد لوجات لرفعها' })
     const url = await logs.upload(text)
-    logLine(`>> اللوجات رُفعت: ${url}`)
+    logLine(`>> Logs uploaded: ${url}`)
     res.json({ url })
   } catch (e) {
     res.status(500).json({ error: e.message })
@@ -603,7 +1196,7 @@ app.post('/api/backups', (req, res) => {
   const job = createJob('backup', `نسخة احتياطية لـ ${instance}`)
   runJob(job, async () => {
     const r = backups.create(instance, path.join(cfg.paths().game, safeInstanceKey(instance)))
-    logLine(`>> تم إنشاء النسخة الاحتياطية ${r.file} (${(r.size / 1048576).toFixed(1)} MB)`)
+    logLine(`>> Created backup archive ${r.file} (${(r.size / 1048576).toFixed(1)} MB)`)
     return r
   })
   res.json({ jobId: job.id })
@@ -616,7 +1209,7 @@ app.post('/api/backups/restore', (req, res) => {
   const job = createJob('backup-restore', `استعادة ${file}`)
   runJob(job, async () => {
     const r = backups.restore(instance, file, path.join(cfg.paths().game, safeInstanceKey(instance)))
-    logLine(`>> تمت استعادة النسخة الاحتياطية ${r.file}`)
+    logLine(`>> Restored backup ${r.file}`)
     return r
   })
   res.json({ jobId: job.id })
@@ -631,6 +1224,11 @@ app.post('/api/backups/delete', (req, res) => {
 
 app.get('/api/jobs', (req, res) => {
   res.json(Object.values(jobs))
+})
+
+app.post('/api/jobs/cancel', (req, res) => {
+  downloadLib.cancelAll()
+  res.json({ ok: true })
 })
 
 app.get('/api/jobs/:id', (req, res) => {
@@ -740,7 +1338,7 @@ app.post('/api/mods/install', (req, res) => {
           onProgress: (cur, total) => setJob(job, { label: `المودباك ${cur}/${total}`, current: cur, total })
         }
       )
-      logLine(`>> تم استيراد المودباك ${r.name || r.instanceId} (ملفات ${r.files}، مودات ${r.mods}${r.failed ? '، فشل تحميل ' + r.failed : ''})`)
+      logLine(`>> Modpack imported ${r.name || r.instanceId} (files ${r.files}, mods ${r.mods}${r.failed ? ', failed to download ' + r.failed : ''})`)
       return r
     }
     const r = await mods.install(
@@ -807,7 +1405,7 @@ app.post('/api/mods/install-local', (req, res) => {
         onProgress: (cur, total) => setJob(job, { label: `المودباك ${cur}/${total}`, current: cur, total })
       }
     )
-    logLine(`>> تم استيراد المودباك المحلي ${r.name || r.instanceId} (ملفات ${r.files}، مودات ${r.mods}${r.failed ? '، فشل تحميل ' + r.failed : ''})`)
+    logLine(`>> Local modpack imported ${r.name || r.instanceId} (files ${r.files}, mods ${r.mods}${r.failed ? ', failed to download ' + r.failed : ''})`)
     return r
   })
   res.json({ jobId: job.id })
@@ -1090,6 +1688,103 @@ app.post('/api/config', (req, res) => {
   res.json(cfg.load().settings)
 })
 
+function controlsStatus() {
+  const c = cfg.load().controls || {}
+  return {
+    auto: !!c.auto,
+    target: c.target || '',
+    active: c.active || '',
+    profiles: (c.profiles || []).map((p) => ({ id: p.id, name: p.name, source: p.source })),
+    running: Array.from(runningGames.keys())
+  }
+}
+
+function setControls(controls) {
+  const c = cfg.load()
+  c.controls = Object.assign({ auto: false, target: '', active: '', profiles: [] }, controls)
+  cfg.save()
+}
+
+function getProfile(id) {
+  const c = cfg.load().controls || {}
+  return (c.profiles || []).find((p) => p.id === id) || null
+}
+
+app.get('/api/options', (req, res) => {
+  res.json(controlsStatus())
+})
+
+app.post('/api/options/save', (req, res) => {
+  let key = (req.body && req.body.key) || ''
+  if (!key) return res.status(400).json({ error: 'حدد النسخة أولًا' })
+  if (!cfg.getInstance(key)) return res.status(404).json({ error: 'النسخة غير موجودة' })
+  const gameDir = path.join(cfg.paths().game, key)
+  if (!fs.existsSync(path.join(gameDir, 'options.txt'))) {
+    return res.status(404).json({ error: `لا يوجد options.txt في النسخة ${key} — شغّلها مرة أولى ليُنشأ` })
+  }
+  const c = cfg.load().controls || {}
+  const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+  if (!controls.saveProfile(gameDir, cfg.paths().data, id)) {
+    return res.status(500).json({ error: 'فشل حفظ نسخة الإعدادات' })
+  }
+  const profiles = c.profiles || []
+  const profile = { id, name: 'إعدادات ' + (profiles.length + 1), source: key }
+  setControls({ ...c, profiles: [...profiles, profile], active: id })
+  res.json(controlsStatus())
+})
+
+app.post('/api/options/delete', (req, res) => {
+  const id = (req.body && req.body.id) || ''
+  if (!id) return res.status(400).json({ error: 'id مطلوب' })
+  const c = cfg.load().controls || {}
+  controls.deleteProfile(cfg.paths().data, id)
+  const profiles = (c.profiles || []).filter((p) => p.id !== id)
+  let active = c.active
+  if (active === id) active = profiles.length ? profiles[profiles.length - 1].id : ''
+  setControls({ ...c, profiles, active })
+  res.json(controlsStatus())
+})
+
+app.post('/api/options/apply', (req, res) => {
+  const id = (req.body && req.body.id) || ''
+  if (!id) return res.status(400).json({ error: 'id مطلوب' })
+  const profile = getProfile(id)
+  if (!profile) return res.status(404).json({ error: 'الملف غير موجود' })
+  let target = (req.body && req.body.target) || ''
+  const targets = []
+  if (target === '') {
+    const running = Array.from(runningGames.keys())
+    target = running.length ? running[0] : 'all'
+  }
+  if (target === 'all') {
+    for (const key of Object.keys(cfg.load().instances || {})) {
+      const gameDir = path.join(cfg.paths().game, key)
+      if (fs.existsSync(path.join(gameDir))) {
+        controls.applyProfile(gameDir, cfg.paths().data, id)
+        targets.push(key)
+      }
+    }
+  } else {
+    if (!cfg.getInstance(target)) return res.status(404).json({ error: 'النسخة غير موجودة' })
+    controls.applyProfile(path.join(cfg.paths().game, target), cfg.paths().data, id)
+    targets.push(target)
+  }
+  res.json({ profile: profile.name, targets })
+})
+
+app.post('/api/options/config', (req, res) => {
+  const c = cfg.load().controls || {}
+  const next = { ...c }
+  if (req.body && req.body.auto !== undefined) next.auto = !!req.body.auto
+  if (req.body && req.body.target !== undefined) next.target = req.body.target || ''
+  if (req.body && req.body.active !== undefined) {
+    if (req.body.active && !getProfile(req.body.active)) return res.status(404).json({ error: 'الملف غير موجود' })
+    next.active = req.body.active || ''
+  }
+  setControls(next)
+  res.json(controlsStatus())
+})
+
 app.use((err, req, res, next) => {
   console.error(err)
   res.status(500).json({ error: err.message || 'internal error' })
@@ -1097,7 +1792,7 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, '127.0.0.1', () => {
   const url = `http://127.0.0.1:${PORT}`
-  console.log(`OmniLauncher running at ${url}`)
+  console.log(`KrypLauncher running at ${url}`)
   if (process.pkg && process.argv.indexOf('--no-open') === -1) {
     const opener = process.platform === 'win32' ? 'start "" "' + url + '"' : process.platform === 'darwin' ? 'open ' + url : 'xdg-open ' + url
     setTimeout(() => {

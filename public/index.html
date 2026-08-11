@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OmniLauncher</title>
+  <title>KrypLauncher</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
@@ -17,7 +17,7 @@
       <div class="brand">
         <div class="brand-icon">⛏️</div>
         <div class="brand-text">
-          <span class="brand-title">Omni<span>Launcher</span></span>
+          <span class="brand-title">Kryp<span>Launcher</span></span>
           <span class="brand-sub" data-i18n="home.brand">Ready to play</span>
         </div>
       </div>
@@ -28,6 +28,7 @@
         <button class="nav-btn" data-tab="skins"><i class="fa-solid fa-shirt"></i><span data-i18n="nav.skins">Skins</span></button>
         <button class="nav-btn" data-tab="accounts"><i class="fa-solid fa-user-astronaut"></i><span data-i18n="nav.accounts">Accounts</span></button>
         <button class="nav-btn" data-tab="data"><i class="fa-solid fa-folder-tree"></i><span data-i18n="nav.data">Data</span></button>
+        <button class="nav-btn" data-tab="servers"><i class="fa-solid fa-server"></i><span data-i18n="nav.servers">Servers</span></button>
         <button class="nav-btn" data-tab="settings"><i class="fa-solid fa-gear"></i><span data-i18n="nav.settings">Settings</span></button>
       </nav>
       <div class="sidebar-foot">
@@ -35,7 +36,7 @@
           <span class="dot" id="serverDot"></span>
           <span id="serverStatus" data-i18n="common.connected">Connected</span>
         </div>
-        <div class="pix">⛏️ OmniLauncher</div>
+        <div class="pix">⛏️ KrypLauncher</div>
       </div>
     </aside>
 
@@ -51,6 +52,7 @@
                 <span id="playBtnText" data-i18n="home.play">Play Now</span>
               </button>
               <button id="stopBtn" class="stop-btn" hidden><i class="fa-solid fa-stop"></i> <span data-i18n="home.stop">Stop</span></button>
+              <button id="cancelJobBtn" class="stop-btn" hidden><i class="fa-solid fa-ban"></i> <span>إيقاف التحميل</span></button>
             </div>
             <div class="play-progress" id="playProgress" hidden>
               <div class="progress-label" id="playProgressLabel">...</div>
@@ -284,6 +286,40 @@
           <button id="backupCreateBtn" class="btn"><i class="fa-solid fa-plus"></i> <span data-i18n="data.createBackup">Create backup</span></button>
         </div>
         <div class="backup-list" id="backupList"></div>
+
+        <div class="tab-head sub"><h3><i class="fa-solid fa-gamepad"></i> إعدادات التحكم (options.txt)</h3></div>
+        <p class="muted">أزرار الكيبورد والماوس وإعدادات التحكم كاملة تنحفظ في ملف options.txt داخل النسخة. احفظ إعداداتك من النسخة اللي مرتبة أزرارها، وقدر تحذفها أو تسوي أكثر من إعدادات، واختار نسخة الهدف أو «كل الإصدارات» للتطبيق.</p>
+        <div class="row">
+          <button id="optionsSaveBtn" class="btn" title="احفظ نسخة من إعدادات التحكم في النسخة المختارة أعلاه"><i class="fa-solid fa-copy"></i> <span>التحكم — احفظ نسخة</span></button>
+          <span id="optionsSourceInfo" class="muted small"></span>
+        </div>
+        <div id="optionsProfilesArea" hidden>
+          <div class="row">
+            <div class="select-wrap" style="flex:1"><select id="optionsTargetSel" title="إلى أي نسخة تطبق"><option value="">كل الإصدارات</option></select></div>
+            <label class="switch-row">
+              <input type="checkbox" id="optionsAutoChk">
+              <span class="switch"></span>
+              <span id="optionsAutoLbl">تطبيق تلقائي</span>
+            </label>
+          </div>
+          <div id="optionsProfilesList"></div>
+        </div>
+      </section>
+
+      <section class="tab" id="tab-servers">
+        <div class="tab-head">
+          <h2><i class="fa-solid fa-server"></i> <span data-i18n="nav.servers">Servers</span></h2>
+          <div class="row">
+            <button id="serversRefreshBtn" class="ghost-btn"><i class="fa-solid fa-rotate"></i> <span data-i18n="common.refresh">Refresh</span></button>
+            <button id="serversBrowseBtn" class="ghost-btn"><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="servers.browse">Browse Servers</span></button>
+            <button id="serversAddBtn" class="btn"><i class="fa-solid fa-plus"></i> <span data-i18n="servers.add">Add Server</span></button>
+          </div>
+        </div>
+        <p class="muted" data-i18n="servers.desc">All servers you played on, sorted by most played. Pick a version, then press Play — the server is added to Minecraft's server list and the game launches connected to it.</p>
+
+        <div class="servers-list" id="serversList">
+          <div class="vrow muted" data-i18n="servers.loading">Loading servers...</div>
+        </div>
       </section>
 
       <section class="tab" id="tab-settings">
@@ -339,6 +375,38 @@
       <div class="modal-actions">
         <button id="installCancelBtn" class="ghost-btn" data-i18n="common.cancel">Cancel</button>
         <button id="installConfirmBtn" class="btn"><i class="fa-solid fa-download"></i> <span data-i18n="common.install">Install</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="addServerModal" hidden>
+    <div class="modal">
+      <h3><i class="fa-solid fa-server"></i> <span data-i18n="servers.addTitle">Add Server</span></h3>
+      <div class="field">
+        <label><i class="fa-solid fa-signature"></i> <span data-i18n="servers.name">Server name</span></label>
+        <input type="text" id="addServerName" data-i18n-ph="servers.namePh" placeholder="e.g. My Server">
+      </div>
+      <div class="field">
+        <label><i class="fa-solid fa-network-wired"></i> <span data-i18n="servers.address">Address</span></label>
+        <input type="text" id="addServerIp" data-i18n-ph="servers.addressPh" placeholder="play.example.com or play.example.com:25565">
+      </div>
+      <div class="modal-actions">
+        <button id="addServerCancelBtn" class="ghost-btn" data-i18n="common.cancel">Cancel</button>
+        <button id="addServerConfirmBtn" class="btn"><i class="fa-solid fa-plus"></i> <span data-i18n="servers.add">Add Server</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="browseServerModal" hidden>
+    <div class="modal modal-wide">
+      <h3><i class="fa-solid fa-magnifying-glass"></i> <span data-i18n="servers.browseTitle">Browse Servers</span></h3>
+      <input type="text" id="browseServerSearch" data-i18n-ph="servers.browsePh" placeholder="Search servers...">
+      <div class="browse-list" id="browseServerList">
+        <div class="vrow muted" data-i18n="servers.loading">Loading servers...</div>
+      </div>
+      <div class="browse-pages" id="browseServerPages"></div>
+      <div class="modal-actions">
+        <button id="browseServerCancelBtn" class="ghost-btn" data-i18n="common.cancel">Cancel</button>
       </div>
     </div>
   </div>

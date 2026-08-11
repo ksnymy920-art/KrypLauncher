@@ -1,4 +1,4 @@
-# OmniLauncher — Open-Source Minecraft Launcher (Electron)
+# KrypLauncher — Open-Source Minecraft Launcher (Electron)
 
 A solo-developer, open-source alternative Minecraft launcher built with **Electron + Express**, using a lightweight HTML/CSS interface instead of a heavier UI framework like React.
 
@@ -17,17 +17,17 @@ A solo-developer, open-source alternative Minecraft launcher built with **Electr
 - **Data tab**: screenshot viewer and full per-instance **backups** (create, restore, delete).
 - **Java**: multiple Java version management.
 - **Auto-updater**: checks and pulls new releases from GitHub.
-- **Shared data dir**: since v1.0.3 all data lives in a single folder (Electron `userData`, else `%APPDATA%\OmniLauncher`), with automatic migration of the legacy portable `data` folder.
+- **Shared data dir**: since v1.0.3 all data lives in a single folder (Electron `userData`, else `%APPDATA%\KrypLauncher`), with automatic migration of the legacy portable `data` folder.
 
 ## Download
 
-Grab the latest portable build from the [Releases](https://github.com/ksnymy920-art/OmniLauncher/releases) page — download `OmniLauncher.exe` and run it. No install needed.
+Grab the latest portable build from the [Releases](https://github.com/ksnymy920-art/KrypLauncher/releases) page — download `KrypLauncher.exe` and run it. No install needed.
 
 ## Building
 
 ```bash
 npm install
-npm run build:app     # produces portable OmniLauncher.exe in dist/
+npm run build:app     # produces portable KrypLauncher.exe in dist/
 ```
 
 ## Notes

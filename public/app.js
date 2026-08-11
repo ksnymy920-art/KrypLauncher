@@ -16,7 +16,9 @@ const state = {
   installLoader: '',
   mods: { results: [], installed: [], source: 'all', searching: false, page: 1, type: 'mod', showInstalled: false, showPack: false, showManual: true },
   skins: { items: [], page: 1, query: '', loading: false, favorites: [], favOnly: false },
-  data: { instance: '', screenshots: [], backups: [] }
+  data: { instance: '', screenshots: [], backups: [] },
+  servers: { instance: '', items: [], loaded: false },
+  controls: { auto: false, target: '', active: '', profiles: [], running: [] }
 }
 
 const $ = (id) => document.getElementById(id)
@@ -57,6 +59,7 @@ function switchTab(name) {
   if (name === 'mods') modsTabOpen()
   if (name === 'skins') skinsTabOpen()
   if (name === 'data') dataTabOpen()
+  if (name === 'servers') serversTabOpen()
 }
 
 function setPlayButton(running, busy, anyRunning) {
@@ -113,17 +116,19 @@ function populateLangSelect() {
 
 async function loadInitial() {
   try {
-    const [manifest, instances, accountsRes, config] = await Promise.all([
+    const [manifest, instances, accountsRes, config, options] = await Promise.all([
       api('/api/manifest'),
       api('/api/instances'),
       api('/api/accounts'),
-      api('/api/config')
+      api('/api/config'),
+      api('/api/options')
     ])
     state.versions = manifest.versions
     state.latest = manifest.latest || {}
     state.instances = instances
     state.accounts = accountsRes.accounts
     state.config = config
+    state.controls = options
     applyLang(config.lang || 'en')
   } catch (e) {
     toast(e.message, 'error')
@@ -263,7 +268,7 @@ async function loadFabricLoaders(mc) {
   } catch (e) {
     state.fabricLoaders = []
     $('installLoaderVersionField').hidden = true
-    toast(e.message, 'error')
+    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
   }
 }
 
@@ -287,7 +292,7 @@ async function loadForgeVersions(mc) {
   } catch (e) {
     state.forgeVersions = { recommended: null, latest: null }
     $('installLoaderVersionField').hidden = true
-    toast(e.message, 'error')
+    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
   }
 }
 
@@ -316,7 +321,7 @@ async function loadNeoForgeVersions(mc) {
     $('installLoaderVersionField').hidden = false
   } catch (e) {
     $('installLoaderVersionField').hidden = true
-    toast(e.message, 'error')
+    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
   }
 }
 
@@ -333,7 +338,7 @@ async function loadQuiltLoaders(mc) {
     $('installLoaderVersionField').hidden = false
   } catch (e) {
     $('installLoaderVersionField').hidden = true
-    toast(e.message, 'error')
+    if (![t('install.fabricNotCompat'), t('install.forgeNotCompat'), t('install.neoforgeNotCompat'), t('install.quiltNotCompat')].includes(e.message)) toast(e.message, 'error')
   }
 }
 
@@ -707,7 +712,7 @@ function dataInstance() {
 
 async function dataTabOpen() {
   populateDataInstanceSelect()
-  await Promise.all([loadScreenshots(), loadBackups()])
+  await Promise.all([loadScreenshots(), loadBackups(), loadOptions()])
 }
 
 async function loadScreenshots() {
@@ -850,6 +855,310 @@ async function openShots() {
   }
 }
 
+function serversInstance() {
+  return selectedInstanceKey() || ''
+}
+
+async function serversTabOpen() {
+  await loadServers()
+}
+
+async function loadServers() {
+  const key = serversInstance()
+  if (!key) {
+    state.servers.items = []
+    renderServers()
+    return
+  }
+  try {
+    const r = await api('/api/servers?instance=' + encodeURIComponent(key))
+    state.servers.items = r.servers || []
+    state.servers.rev = r.rev || 0
+  } catch (e) {
+    state.servers.items = []
+  }
+  state.servers.loaded = true
+  renderServers()
+}
+
+function serverIconSrc(s) {
+  if (s.icon || s.ip) return '/api/servers/icon?host=' + encodeURIComponent(s.ip) + '&port=' + encodeURIComponent(s.port) + '&instance=' + encodeURIComponent(serversInstance()) + '&v=' + Math.random().toString(36).slice(2)
+  return ''
+}
+
+function renderServers() {
+  const box = $('serversList')
+  if (!box) return
+  const key = serversInstance()
+  const items = state.servers.items
+  if (!key) {
+    box.innerHTML = '<div class="vrow muted">' + t('versions.noInst') + '</div>'
+    return
+  }
+  if (!items.length) {
+    box.innerHTML = '<div class="vrow muted">' + t('servers.none') + '</div>'
+    return
+  }
+  box.innerHTML = ''
+  for (const s of items) {
+    const div = document.createElement('div')
+    div.className = 'srow'
+    const plays = s.plays ? s.plays + '×' : ''
+    const last = s.lastPlayed ? new Date(s.lastPlayed).toLocaleDateString() : ''
+    const sub = []
+    if (s.name !== s.ip) sub.push(escapeHtml(s.ip) + (s.port !== 25565 ? ':' + s.port : ''))
+    else if (s.port !== 25565) sub.push(':' + s.port)
+    if (plays) sub.push(t('servers.plays', { n: s.plays }))
+    if (last) sub.push(last)
+    div.innerHTML = `
+      <div class="srv-icon">
+        <img src="${serverIconSrc(s)}" alt="" onerror="this.style.display='none'"><span class="srv-fallback">${escapeHtml((s.name || '?')[0].toUpperCase())}</span>
+      </div>
+      <div class="v-info">
+        <div class="v-name">${escapeHtml(s.name || s.ip)}</div>
+        <div class="v-sub">${sub.join(' · ')}</div>
+        <div class="srv-version">
+          <div class="select-wrap"><select class="srv-version-select" data-srv="${escapeHtml(s.ip)}" data-srvport="${s.port}"></select></div>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn srv-play" data-srv="${escapeHtml(s.ip)}" data-srvport="${s.port}"><i class="fa-solid fa-play"></i> <span data-i18n="servers.play">Play</span></button>
+        ${s.inDat
+          ? '<span class="srv-saved" title="' + t('servers.inDatTitle') + '"><i class="fa-solid fa-circle-check"></i> ' + t('servers.savedInDat') + '</span>'
+          : '<button class="ghost-btn srv-save" data-srv="' + escapeHtml(s.ip) + '" data-srvport="' + s.port + '"><i class="fa-solid fa-bookmark"></i> <span data-i18n="servers.saveInDat">Save in Minecraft</span></button>'}
+        <button class="icon-btn danger srv-del" data-srv="${escapeHtml(s.ip)}" title="${t('common.delete')}"><i class="fa-solid fa-trash"></i></button>
+      </div>`
+    box.appendChild(div)
+    const sel = div.querySelector('.srv-version-select')
+    fillServerVersionSelect(sel, s)
+    sel.addEventListener('change', async () => {
+      const parts = sel.value.split('|')
+      const versionId = parts[0] || ''
+      const loader = parts[1] || ''
+      const loaderVersion = parts[2] || ''
+      try {
+        await api('/api/servers/version', { method: 'POST', body: JSON.stringify({ ip: s.ip, versionId, loader, loaderVersion }) })
+        s.versionId = versionId
+        s.loader = loader
+        s.loaderVersion = loaderVersion
+        toast(t('servers.versionSaved'), 'success')
+      } catch (e) {
+        toast(e.message, 'error')
+      }
+    })
+    div.querySelector('.srv-play').addEventListener('click', async (e) => {
+      const btn = e.currentTarget
+      btn.disabled = true
+      try {
+        await playOnServer(s)
+      } catch (err) {
+        toast(err.message, 'error')
+      } finally {
+        btn.disabled = false
+      }
+    })
+    const saveBtn = div.querySelector('.srv-save')
+    if (saveBtn) {
+      saveBtn.addEventListener('click', async (e) => {
+        const btn = e.currentTarget
+        btn.disabled = true
+        try {
+          await api('/api/servers/add', { method: 'POST', body: JSON.stringify({ instance: serversInstance(), name: s.name, ip: s.ip, port: s.port }) })
+          toast(t('servers.savedInDat'), 'success')
+          await loadServers()
+        } catch (err) {
+          toast(err.message, 'error')
+          btn.disabled = false
+        }
+      })
+    }
+    div.querySelector('.srv-del').addEventListener('click', async () => {
+      if (!confirm(t('servers.deleteConfirm', { name: s.name || s.ip }))) return
+      try {
+        await api('/api/servers/remove', { method: 'POST', body: JSON.stringify({ instance: serversInstance(), ip: s.ip }) })
+        toast(t('servers.deleted', { name: s.name || s.ip }), 'success')
+        await loadServers()
+      } catch (e) {
+        toast(e.message, 'error')
+      }
+    })
+  }
+}
+
+function fillServerVersionSelect(sel, s) {
+  const keys = Object.keys(state.instances || {}).filter((k) => state.instances[k] && state.instances[k].status !== 'installing')
+  const cur = s.versionId ? (s.versionId + (s.loader ? '|' + s.loader : '')) : ''
+  sel.innerHTML = ''
+  if (!keys.length) {
+    sel.appendChild(new Option(t('versions.noInst'), ''))
+    return
+  }
+  sel.appendChild(new Option(t('servers.auto'), ''))
+  for (const k of keys) {
+    const inst = state.instances[k]
+    const val = inst.versionId + (inst.loader ? '|' + inst.loader : '') + (inst.loaderVersion ? '|' + inst.loaderVersion : '')
+    const opt = new Option(k + ' — ' + loaderName(inst.loader), val)
+    if (cur && val.startsWith(cur)) opt.selected = true
+    sel.appendChild(opt)
+  }
+}
+
+async function playOnServer(s) {
+  const key = serversInstance()
+  if (!key) return toast(t('home.noInstance'), 'error')
+  const inst = state.instances[key]
+  if (!inst) return toast(t('home.notFound'), 'error')
+  let versionId = inst.versionId
+  let loader = inst.loader || ''
+  let loaderVersion = inst.loaderVersion || ''
+  if (s.versionId) {
+    versionId = s.versionId
+    loader = s.loader || ''
+    loaderVersion = s.loaderVersion || ''
+  }
+  const accountId = $('accountSelect').value
+  if (!accountId) return toast(t('home.needAccount'), 'error')
+  const address = s.ip + (s.port !== 25565 ? ':' + s.port : '')
+  const res = await api('/api/play', {
+    method: 'POST',
+    body: JSON.stringify({ versionId, loader, loaderVersion, accountId, server: address })
+  })
+  state.activeJobId = res.jobId
+  setPlayButton(false, true, !!state.game.running)
+  toast(t('servers.launching', { name: s.name || s.ip }), 'success')
+}
+
+async function addServerFromForm() {
+  const name = $('addServerName').value.trim()
+  const ip = $('addServerIp').value.trim()
+  const key = serversInstance()
+  if (!key) return toast(t('versions.noInst'), 'error')
+  if (!ip) return toast(t('servers.needAddress'), 'error')
+  try {
+    await api('/api/servers/track', { method: 'POST', body: JSON.stringify({ name, ip }) })
+    $('addServerName').value = ''
+    $('addServerIp').value = ''
+    $('addServerModal').hidden = true
+    toast(t('servers.added'), 'success')
+    await loadServers()
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
+function alreadyAddedIp(host) {
+  const items = state.servers.items || []
+  return items.some((s) => s.ip === host)
+}
+
+let browseQuery = ''
+let browsePage = 1
+let browseTotalPages = 1
+let browseHasNext = false
+
+async function openServerBrowse() {
+  $('browseServerModal').hidden = false
+  $('browseServerSearch').value = ''
+  browseQuery = ''
+  browsePage = 1
+  await renderBrowseServers()
+}
+
+async function renderBrowseServers() {
+  const box = $('browseServerList')
+  const pagesBox = $('browseServerPages')
+  if (!box) return
+  box.innerHTML = '<div class="vrow muted">' + t('servers.loading') + '</div>'
+  if (pagesBox) pagesBox.innerHTML = ''
+  try {
+    const r = await api('/api/servers/browse?q=' + encodeURIComponent(browseQuery) + '&page=' + browsePage)
+    const list = r.servers || []
+    browseTotalPages = r.totalPages || 1
+    browseHasNext = !!r.hasNext
+    if (!list.length) {
+      box.innerHTML = '<div class="vrow muted">' + t('servers.browseNone') + '</div>'
+      renderBrowsePages(pagesBox)
+      return
+    }
+    box.innerHTML = ''
+    for (const srv of list) {
+      const host = (srv.address || '').split(':')[0]
+      const port = parseInt((srv.address || '').split(':')[1] || '25565', 10) || 25565
+      const div = document.createElement('div')
+      div.className = 'brow'
+      const added = alreadyAddedIp(host)
+      const iconSrc = '/api/icons?host=' + encodeURIComponent(host) + '&port=' + port + '&v=' + Math.random().toString(36).slice(2)
+      div.innerHTML = `
+        <div class="srv-icon">
+          <img src="${iconSrc}" alt="" onerror="this.style.display='none'"><span class="srv-fallback">${escapeHtml((srv.name || '?')[0].toUpperCase())}</span>
+        </div>
+        <div class="brow-info">
+          <div class="brow-name">${escapeHtml(srv.name)}</div>
+          <div class="brow-addr">${escapeHtml(srv.address)}</div>
+        </div>
+        <button class="btn brow-add" data-host="${escapeHtml(host)}" ${added ? 'disabled' : ''}>${added ? t('common.installed') : t('servers.browseAdd')}</button>`
+      box.appendChild(div)
+      const btn = div.querySelector('.brow-add')
+      if (btn && !btn.disabled) {
+        btn.addEventListener('click', async () => {
+          btn.disabled = true
+          try {
+            await api('/api/servers/track', { method: 'POST', body: JSON.stringify({ name: srv.name, ip: srv.address }) })
+            btn.textContent = t('common.installed')
+            toast(t('servers.added'), 'success')
+            await loadServers()
+          } catch (e) {
+            toast(e.message, 'error')
+            btn.disabled = false
+          }
+        })
+      }
+    }
+    renderBrowsePages(pagesBox)
+  } catch (e) {
+    box.innerHTML = '<div class="vrow muted">' + escapeHtml(e.message) + '</div>'
+  }
+}
+
+function renderBrowsePages(pagesBox) {
+  if (!pagesBox) return
+  pagesBox.innerHTML = ''
+  const total = browseTotalPages
+  const cur = browsePage
+  const makeBtn = (label, p, cls, disabled) => {
+    const b = document.createElement('button')
+    b.className = 'browse-page-btn' + (cls ? ' ' + cls : '')
+    b.textContent = label
+    b.disabled = !!disabled
+    if (!disabled) b.addEventListener('click', () => {
+      if (p === browsePage) return
+      browsePage = p
+      renderBrowseServers()
+    })
+    pagesBox.appendChild(b)
+  }
+  const addEllipsis = () => {
+    const e = document.createElement('span')
+    e.className = 'browse-dots'
+    e.textContent = '...'
+    pagesBox.appendChild(e)
+  }
+  makeBtn('\u2039', cur - 1, '', cur <= 1)
+  let start = Math.max(1, cur - 2)
+  let end = Math.min(total, start + 4)
+  start = Math.max(1, end - 4)
+  if (start > 1) {
+    makeBtn('1', 1)
+    if (start > 2) addEllipsis()
+  }
+  for (let p = start; p <= end; p++) makeBtn(String(p), p, p === cur ? 'active' : '')
+  if (end < total) {
+    if (end < total - 1) addEllipsis()
+    makeBtn(String(total), total)
+  }
+  if (cur < total || browseHasNext) makeBtn('\u203A', cur + 1)
+}
+
 function escapeHtml(s) {
   const d = document.createElement('div')
   d.textContent = s
@@ -858,8 +1167,18 @@ function escapeHtml(s) {
 
 function renderVersionsTab() {
   const list = $('versionList')
-  const releases = state.versions.filter((v) => v.type === 'release').sort((a, b) => b.id.localeCompare(a.id))
-  const snapshots = state.versions.filter((v) => v.type === 'snapshot').sort((a, b) => b.id.localeCompare(a.id))
+  const cmpVer = (x, y) => {
+    const nx = x.split('-')[0].split('.').map(Number)
+    const ny = y.split('-')[0].split('.').map(Number)
+    for (let i = 0; i < 4; i++) {
+      const dx = nx[i] || 0
+      const dy = ny[i] || 0
+      if (dx !== dy) return dy - dx
+    }
+    return y.localeCompare(x)
+  }
+  const releases = state.versions.filter((v) => v.type === 'release').sort((a, b) => cmpVer(a.id, b.id))
+  const snapshots = state.versions.filter((v) => v.type === 'snapshot').sort((a, b) => cmpVer(a.id, b.id))
 
   list.innerHTML = ''
   const groups = [
@@ -904,6 +1223,145 @@ function renderSettings() {
   if (c.elybyName && c.elybyUuid) elyStatus.textContent = t('settings.linked', { name: c.elybyName })
   else if (c.elybyEmail) elyStatus.textContent = t('settings.notTested')
   else elyStatus.textContent = ''
+}
+
+function sortInstanceKeys(keys) {
+  const sortSemver = (a, b) => {
+    const na = String(a).split('-')[0].split('.').map(Number)
+    const nb = String(b).split('-')[0].split('.').map(Number)
+    for (let i = 0; i < 3; i++) {
+      const da = na[i] || 0
+      const db = nb[i] || 0
+      if (da !== db) return db - da
+    }
+    return String(b).localeCompare(String(a))
+  }
+  return [...keys].sort(sortSemver)
+}
+
+function renderOptionsUI() {
+  const c = state.controls || { auto: false, target: '', active: '', profiles: [] }
+  const sel = $('dataInstanceSelect')
+  const n = (c.profiles || []).length
+  $('optionsSourceInfo').textContent = n ? `محفوظ ${n} نسخة إعدادات` : ''
+  $('optionsProfilesArea').hidden = n === 0
+  if (n === 0) return
+
+  const tsel = $('optionsTargetSel')
+  if (!tsel.dataset.built || tsel.dataset.built !== String(n)) {
+    tsel.innerHTML = ''
+    tsel.appendChild(new Option('كل الإصدارات', ''))
+    const keys = sortInstanceKeys(Object.keys(state.instances || {}).filter((k) => {
+      const st = state.instances[k]
+      return st && st.status !== 'installing' && st.status !== 'preparing'
+    }))
+    for (const k of keys) tsel.appendChild(new Option(k, k))
+    tsel.dataset.built = String(n)
+  }
+  if (c.target && [...tsel.options].some((o) => o.value === c.target)) tsel.value = c.target
+  else tsel.value = ''
+
+  const auto = !!c.auto
+  $('optionsAutoChk').checked = auto
+  $('optionsAutoLbl').textContent = 'تطبيق تلقائي'
+  renderOptionsProfiles()
+}
+
+function renderOptionsProfiles() {
+  const c = state.controls || { auto: false, target: '', active: '', profiles: [] }
+  const box = $('optionsProfilesList')
+  if (!box) return
+  box.innerHTML = ''
+  for (const p of c.profiles || []) {
+    const div = document.createElement('div')
+    div.className = 'vrow'
+    div.innerHTML = `
+      <div class="v-info">
+        <div class="v-name">${escapeHtml(p.name)}${p.id === c.active ? ' <span class="tag">تلقائي</span>' : ''}</div>
+        <div class="v-sub">من ${escapeHtml(p.source)}</div>
+      </div>
+      <div class="row">
+        <button class="ghost-btn" data-apply="${escapeHtml(p.id)}" title="طبّق هذا الإعداد على النسخة المختارة"><i class="fa-solid fa-keyboard"></i> طبّق</button>
+        <button class="ghost-btn" data-active="${escapeHtml(p.id)}" title="اجعله الإعداد التلقائي" style="color:${p.id === c.active ? 'var(--green2)' : ''}"><i class="fa-solid ${p.id === c.active ? 'fa-star' : 'fa-star-o'}"></i></button>
+        <button class="icon-btn danger" data-del="${escapeHtml(p.id)}" title="حذف هذا الإعداد"><i class="fa-solid fa-trash"></i></button>
+      </div>`
+    div.querySelector('[data-apply]').addEventListener('click', () => optionsApply(p.id))
+    div.querySelector('[data-active]').addEventListener('click', () => optionsSetActive(p.id))
+    div.querySelector('[data-del]').addEventListener('click', () => optionsDelete(p.id))
+    box.appendChild(div)
+  }
+}
+
+async function loadOptions() {
+  try {
+    state.controls = await api('/api/options')
+  } catch (e) {}
+  renderOptionsUI()
+}
+
+async function optionsSave() {
+  const key = dataInstance()
+  if (!key) return toast('حدد النسخة أولًا', 'error')
+  const btn = $('optionsSaveBtn')
+  btn.disabled = true
+  try {
+    state.controls = await api('/api/options/save', { method: 'POST', body: JSON.stringify({ key }) })
+    renderOptionsUI()
+    toast('تم حفظ إعدادات التحكم من «' + key + '»', 'success')
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+  btn.disabled = false
+}
+
+async function optionsDelete(id) {
+  if (!confirm('حذف هذا الإعداد؟')) return
+  try {
+    state.controls = await api('/api/options/delete', { method: 'POST', body: JSON.stringify({ id }) })
+    renderOptionsUI()
+    toast('تم حذف الإعداد', 'success')
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
+async function optionsApply(id) {
+  const target = $('optionsTargetSel').value
+  try {
+    const r = await api('/api/options/apply', { method: 'POST', body: JSON.stringify({ id, target }) })
+    toast('تم تطبيق «' + r.profile + '» على ' + (r.targets.length === 1 ? r.targets[0] : r.targets.length + ' نسخ'), 'success')
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
+async function optionsSetActive(id) {
+  try {
+    state.controls = await api('/api/options/config', { method: 'POST', body: JSON.stringify({ active: id }) })
+    renderOptionsUI()
+    toast('صار هذا الإعداد التلقائي', 'success')
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
+async function optionsSetTarget() {
+  const target = $('optionsTargetSel').value
+  try {
+    state.controls = await api('/api/options/config', { method: 'POST', body: JSON.stringify({ target }) })
+  } catch (e) {
+    toast(e.message, 'error')
+  }
+}
+
+async function optionsSetAuto(on) {
+  try {
+    state.controls = await api('/api/options/config', { method: 'POST', body: JSON.stringify({ auto: on }) })
+    renderOptionsUI()
+    toast(on ? 'تم تفعيل «تطبيق تلقائي» — أول ما تدخل نسخة يطبق إعدادك عليها' : 'تم إيقاف «تطبيق تلقائي»', 'success')
+  } catch (e) {
+    toast(e.message, 'error')
+  }
 }
 
 async function saveSettings() {
@@ -959,15 +1417,17 @@ async function tick() {
     const pct = anyJob.total ? Math.min(100, Math.round((anyJob.current / anyJob.total) * 100)) : 100
     $('playProgressFill').style.width = pct + '%'
     $('playProgressFill').style.animation = anyJob.total ? 'none' : 'indet 1.2s infinite'
+    $('cancelJobBtn').hidden = false
     setPlayButton(false, true, !!state.game.running)
   } else {
     $('playProgress').hidden = true
+    $('cancelJobBtn').hidden = true
   }
 
   if (playJob && playJob.done) {
     state.activeJobId = null
     if (playJob.error) {
-      toast(t('home.playFailed', { msg: tServer(playJob.error) }), 'error')
+      toast(playJob.error === 'cancelled' ? 'تم إيقاف التحميل' : t('home.playFailed', { msg: tServer(playJob.error) }), 'error')
     }
     if (playJob.type === 'mods') {
       if (!playJob.error) {
@@ -1044,6 +1504,16 @@ async function tick() {
       logLine(l, logClass(l.line))
     }
     state.logOffset = logRes.logs[logRes.logs.length - 1].n + 1
+  }
+
+  if (anyRunning && document.getElementById('tab-servers').classList.contains('active')) {
+    const sKey = serversInstance()
+    if (sKey) {
+      try {
+        const r = await api('/api/servers?instance=' + encodeURIComponent(sKey))
+        if ((r.rev || 0) !== (state.servers.rev || 0)) await loadServers()
+      } catch (e) {}
+    }
   }
 
   await renderMissingBanner()
@@ -1676,6 +2146,14 @@ function bind() {
 
   $('playBtn').addEventListener('click', play)
   $('stopBtn').addEventListener('click', stopGame)
+  $('cancelJobBtn').addEventListener('click', async () => {
+    try {
+      await api('/api/jobs/cancel', { method: 'POST' })
+      toast('جاري إيقاف التحميل...')
+    } catch (e) {
+      toast(e.message, 'error')
+    }
+  })
   $('clearConsole').addEventListener('click', () => {
     $('console').innerHTML = ''
     api('/api/game/logs/clear', { method: 'POST' }).catch(() => {})
@@ -1712,6 +2190,10 @@ function bind() {
     window.open($('msLink').href, '_blank')
   })
   $('saveSettings').addEventListener('click', saveSettings)
+
+  $('optionsSaveBtn').addEventListener('click', optionsSave)
+  $('optionsAutoChk').addEventListener('change', (e) => optionsSetAuto(e.target.checked))
+  $('optionsTargetSel').addEventListener('change', optionsSetTarget)
 
   $('langSetting').addEventListener('change', async (e) => {
     applyLang(e.target.value)
@@ -1801,12 +2283,42 @@ function bind() {
   if (dataInstSel) {
     dataInstSel.addEventListener('change', async () => {
       state.data.instance = dataInstSel.value
+      renderOptionsUI()
       await Promise.all([loadScreenshots(), loadBackups()])
     })
   }
   $('shotsRefreshBtn').addEventListener('click', loadScreenshots)
   $('shotsOpenBtn').addEventListener('click', openShots)
   $('backupCreateBtn').addEventListener('click', createBackup)
+
+  $('serversRefreshBtn').addEventListener('click', loadServers)
+  $('serversAddBtn').addEventListener('click', () => {
+    $('addServerName').value = ''
+    $('addServerIp').value = ''
+    $('addServerModal').hidden = false
+  })
+  $('addServerCancelBtn').addEventListener('click', () => ($('addServerModal').hidden = true))
+  $('addServerModal').addEventListener('click', (e) => {
+    if (e.target.id === 'addServerModal') $('addServerModal').hidden = true
+  })
+  $('addServerConfirmBtn').addEventListener('click', addServerFromForm)
+  $('addServerIp').addEventListener('keydown', (e) => e.key === 'Enter' && addServerFromForm())
+
+  $('serversBrowseBtn').addEventListener('click', openServerBrowse)
+  $('browseServerCancelBtn').addEventListener('click', () => ($('browseServerModal').hidden = true))
+  $('browseServerModal').addEventListener('click', (e) => {
+    if (e.target.id === 'browseServerModal') $('browseServerModal').hidden = true
+  })
+  let browseTimer = null
+  $('browseServerSearch').addEventListener('input', (e) => {
+    clearTimeout(browseTimer)
+    const v = e.target.value
+    browseTimer = setTimeout(() => {
+      browseQuery = v
+      browsePage = 1
+      renderBrowseServers()
+    }, 250)
+  })
 }
 
 function setupUpdaterUI() {
