@@ -151,4 +151,5 @@ your own branded version. No secrets, no hidden strings.
          PLAY EVERY ERA OF MINECRAFT WITH ONE APP: KRYPLAUNCHER.
 ================================================================================
 ## 
-
+The official site—there is no other!
+https://kryplauncher.netlify.app/
